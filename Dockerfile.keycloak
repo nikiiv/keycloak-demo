@@ -1,0 +1,10 @@
+FROM gradle:8.5-jdk17 AS provider-build
+WORKDIR /build
+COPY keycloak-provider/settings.gradle.kts keycloak-provider/build.gradle.kts ./
+RUN gradle --no-daemon dependencies > /dev/null 2>&1 || true
+COPY keycloak-provider/src ./src
+RUN gradle --no-daemon jar
+
+FROM quay.io/keycloak/keycloak:26.0.7
+COPY --from=provider-build /build/build/libs/keycloak-demo-provider-1.0.0.jar /opt/keycloak/providers/
+RUN /opt/keycloak/bin/kc.sh build

@@ -1,0 +1,16 @@
+# macOS
+.DS_Store
+
+# Node
+node_modules/
+*.tsbuildinfo
+
+# Gradle
+.gradle/
+build/
+bin/
+
+# IDE
+.idea/
+.vscode/
+*.iml

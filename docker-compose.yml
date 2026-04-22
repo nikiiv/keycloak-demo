@@ -1,0 +1,128 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: keycloak_secret
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - keycloak-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  keycloak:
+    build:
+      context: .
+      dockerfile: Dockerfile.keycloak
+    command: ["start-dev", "--import-realm", "--verbose"]
+    mem_limit: 4g
+    mem_reservation: 2g
+    environment:
+      KC_OPTS: "-Xmx2g"
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak_secret
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json
+      - keycloak_data:/opt/keycloak/data
+    networks:
+      - keycloak-network
+    ports:
+      - "8888:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /realms/master HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app1-frontend:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    volumes:
+      - ./app1/frontend:/app
+    ports:
+      - "5173:5173"
+    networks:
+      - keycloak-network
+    environment:
+      VITE_KEYCLOAK_URL: http://localhost:8888
+      VITE_APP_BFF_URL: http://localhost:8081
+    depends_on:
+      keycloak:
+        condition: service_healthy
+
+  app1-bff:
+    image: gradle:8.5
+    working_dir: /app
+    command: sh -c "gradle run --no-daemon"
+    volumes:
+      - ./app1/bff:/app
+    ports:
+      - "8081:8081"
+    networks:
+      - keycloak-network
+    environment:
+      MICRONAUT_SERVER_PORT: 8081
+      KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
+      MICRONAUT_OIDC_CLIENT_SECRET: app1-client-secret
+    depends_on:
+      keycloak:
+        condition: service_healthy
+
+  app2-frontend:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    volumes:
+      - ./app2/frontend:/app
+    ports:
+      - "5174:5174"
+    networks:
+      - keycloak-network
+    environment:
+      VITE_KEYCLOAK_URL: http://localhost:8888
+      VITE_APP_BFF_URL: http://localhost:8082
+    depends_on:
+      keycloak:
+        condition: service_healthy
+
+  app2-bff:
+    image: gradle:8.5
+    working_dir: /app
+    command: sh -c "gradle run --no-daemon"
+    volumes:
+      - ./app2/bff:/app
+    ports:
+      - "8082:8082"
+    networks:
+      - keycloak-network
+    environment:
+      MICRONAUT_SERVER_PORT: 8082
+      KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
+      MICRONAUT_OIDC_CLIENT_SECRET: app2-client-secret
+    depends_on:
+      keycloak:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  keycloak_data:
+
+networks:
+  keycloak-network:
+    driver: bridge

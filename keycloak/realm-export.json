@@ -1,0 +1,101 @@
+{
+  "id": "demo-realm",
+  "realm": "demo-realm",
+  "enabled": true,
+  "displayName": "Demo SSO Realm",
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "components": {
+    "org.keycloak.storage.UserStorageProvider": [
+      {
+        "name": "demo-user-provider",
+        "providerId": "demo-user-provider",
+        "subComponents": {},
+        "config": {
+          "enabled": ["true"],
+          "priority": ["0"],
+          "cachePolicy": ["NO_CACHE"]
+        }
+      }
+    ]
+  },
+  "users": [],
+  "clients": [
+    {
+      "clientId": "app1-client",
+      "enabled": true,
+      "name": "App1 Client",
+      "description": "Frontend for App1",
+      "publicClient": true,
+      "bearerOnly": false,
+      "webOrigins": ["http://localhost:5173", "http://127.0.0.1:5173"],
+      "redirectUris": ["http://localhost:5173/*", "http://127.0.0.1:5173/*"],
+      "baseUrl": "http://localhost:5173/",
+      "rootUrl": "http://localhost:5173",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": false,
+      "protocolMappers": [
+        {
+          "name": "realm-roles-flat",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "app2-client",
+      "enabled": true,
+      "name": "App2 Client",
+      "description": "Frontend for App2",
+      "publicClient": true,
+      "bearerOnly": false,
+      "webOrigins": ["http://localhost:5174", "http://127.0.0.1:5174"],
+      "redirectUris": ["http://localhost:5174/*", "http://127.0.0.1:5174/*"],
+      "baseUrl": "http://localhost:5174/",
+      "rootUrl": "http://localhost:5174",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": false,
+      "protocolMappers": [
+        {
+          "name": "realm-roles-flat",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "roles": {
+    "realm": [
+      {
+        "name": "user",
+        "description": "Standard user role"
+      }
+    ]
+  },
+  "defaultRoles": ["user"]
+}
