@@ -2,7 +2,10 @@ import keycloak from './Keycloak';
 import { User, BffResult, getUser, getBffUser, login, logout, isAuthenticated, hasRole } from './User';
 
 const APP_NAME = import.meta.env.VITE_APP_NAME ?? 'SSO Demo';
+const APP_TITLE = (import.meta.env.VITE_APP_TITLE ?? APP_NAME) as string;
 const REQUIRED_ROLE = (import.meta.env.VITE_REQUIRED_ROLE ?? '').trim();
+
+document.title = APP_TITLE;
 
 export class DemoApp {
   private user: User | null = null;

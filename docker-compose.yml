@@ -85,6 +85,7 @@ services:
       VITE_KEYCLOAK_URL: http://localhost:8888
       VITE_KEYCLOAK_CLIENT_ID: app1-client
       VITE_APP_NAME: "App A"
+      VITE_APP_TITLE: "client space"
       BFF_URL: http://bff-a:8080
 
   web-b:
@@ -95,6 +96,7 @@ services:
       VITE_KEYCLOAK_URL: http://localhost:8888
       VITE_KEYCLOAK_CLIENT_ID: app2-client
       VITE_APP_NAME: "App B"
+      VITE_APP_TITLE: "client self service"
       BFF_URL: http://bff-b:8080
 
   web-c:
@@ -105,6 +107,7 @@ services:
       VITE_KEYCLOAK_URL: http://localhost:8888
       VITE_KEYCLOAK_CLIENT_ID: app3-client
       VITE_APP_NAME: "App C (admin)"
+      VITE_APP_TITLE: "restricted admin area"
       VITE_REQUIRED_ROLE: admin
       BFF_URL: http://bff-c:8080
 

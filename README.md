@@ -118,6 +118,7 @@ The same `frontend/` and `bff/` sources are launched three times — every app-s
 | `VITE_KEYCLOAK_URL` | `frontend/src/Keycloak.ts` | Keycloak issuer URL (browser-side) |
 | `VITE_KEYCLOAK_CLIENT_ID` | `frontend/src/Keycloak.ts` | Which OIDC client to authenticate as |
 | `VITE_APP_NAME` | `frontend/src/App.ts` | Display label in nav + headings |
+| `VITE_APP_TITLE` | `frontend/index.html`, `frontend/src/App.ts` | Browser tab title (defaults to `VITE_APP_NAME` if unset) |
 | `VITE_REQUIRED_ROLE` | `frontend/src/App.ts` | If set, gate the app and show the red banner when the user lacks this role (App C: `admin`) |
 | `BFF_URL` | `frontend/vite.config.ts` | Proxy target for `/api/*` from this frontend |
 | `MICRONAUT_APPLICATION_NAME` | Micronaut | Service name in logs |
