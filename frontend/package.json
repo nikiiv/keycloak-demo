@@ -1,5 +1,5 @@
 {
-  "name": "app1-frontend",
+  "name": "sso-demo-frontend",
   "version": "1.0.0",
   "type": "module",
   "scripts": {

@@ -9,6 +9,12 @@ export interface User {
   token: string;
 }
 
+export interface BffResult {
+  status: number;
+  ok: boolean;
+  body: any;
+}
+
 export async function getUser(): Promise<User | null> {
   if (!keycloak.authenticated) return null;
 
@@ -26,7 +32,7 @@ export async function getUser(): Promise<User | null> {
   };
 }
 
-export async function getBffUser(): Promise<User | null> {
+export async function getBffUser(): Promise<BffResult | null> {
   const token = keycloak.token;
   if (!token) return null;
 
@@ -36,9 +42,8 @@ export async function getBffUser(): Promise<User | null> {
         'Authorization': `Bearer ${token}`
       }
     });
-
-    if (!response.ok) return null;
-    return await response.json();
+    const body = await response.json().catch(() => null);
+    return { status: response.status, ok: response.ok, body };
   } catch {
     return null;
   }
@@ -58,4 +63,9 @@ export function register() {
 
 export function isAuthenticated(): boolean {
   return keycloak.authenticated || false;
+}
+
+export function hasRole(role: string): boolean {
+  const roles = keycloak.realmAccess?.roles ?? [];
+  return roles.includes(role);
 }

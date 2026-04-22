@@ -87,6 +87,39 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "app3-client",
+      "enabled": true,
+      "name": "App3 Client",
+      "description": "Frontend for App3 (admin-only)",
+      "publicClient": true,
+      "bearerOnly": false,
+      "webOrigins": ["http://localhost:5175", "http://127.0.0.1:5175"],
+      "redirectUris": ["http://localhost:5175/*", "http://127.0.0.1:5175/*"],
+      "baseUrl": "http://localhost:5175/",
+      "rootUrl": "http://localhost:5175",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": false,
+      "protocolMappers": [
+        {
+          "name": "realm-roles-flat",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        }
+      ]
     }
   ],
   "roles": {
@@ -94,6 +127,10 @@
       {
         "name": "user",
         "description": "Standard user role"
+      },
+      {
+        "name": "admin",
+        "description": "Administrator role"
       }
     ]
   },

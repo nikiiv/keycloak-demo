@@ -1,5 +1,33 @@
 version: "3.8"
 
+# Single frontend/ and bff/ codebase, run as two parameterized instances
+# (web-a + bff-a, web-b + bff-b) to demonstrate SSO.
+
+x-web-common: &web-common
+  image: node:20-alpine
+  working_dir: /app
+  command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+  volumes:
+    - ./frontend:/app
+    - /app/node_modules            # anonymous volume, isolated per container
+  networks:
+    - keycloak-network
+  depends_on:
+    keycloak:
+      condition: service_healthy
+
+x-bff-common: &bff-common
+  image: gradle:8.5
+  working_dir: /app
+  command: sh -c "gradle run --no-daemon"
+  volumes:
+    - ./bff:/app
+  networks:
+    - keycloak-network
+  depends_on:
+    keycloak:
+      condition: service_healthy
+
 services:
   postgres:
     image: postgres:15-alpine
@@ -49,75 +77,69 @@ services:
       postgres:
         condition: service_healthy
 
-  app1-frontend:
-    image: node:20-alpine
-    working_dir: /app
-    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
-    volumes:
-      - ./app1/frontend:/app
+  web-a:
+    <<: *web-common
     ports:
       - "5173:5173"
-    networks:
-      - keycloak-network
     environment:
       VITE_KEYCLOAK_URL: http://localhost:8888
-      VITE_APP_BFF_URL: http://localhost:8081
-    depends_on:
-      keycloak:
-        condition: service_healthy
+      VITE_KEYCLOAK_CLIENT_ID: app1-client
+      VITE_APP_NAME: "App A"
+      BFF_URL: http://bff-a:8080
 
-  app1-bff:
-    image: gradle:8.5
-    working_dir: /app
-    command: sh -c "gradle run --no-daemon"
-    volumes:
-      - ./app1/bff:/app
+  web-b:
+    <<: *web-common
     ports:
-      - "8081:8081"
-    networks:
-      - keycloak-network
-    environment:
-      MICRONAUT_SERVER_PORT: 8081
-      KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
-      MICRONAUT_OIDC_CLIENT_SECRET: app1-client-secret
-    depends_on:
-      keycloak:
-        condition: service_healthy
-
-  app2-frontend:
-    image: node:20-alpine
-    working_dir: /app
-    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
-    volumes:
-      - ./app2/frontend:/app
-    ports:
-      - "5174:5174"
-    networks:
-      - keycloak-network
+      - "5174:5173"
     environment:
       VITE_KEYCLOAK_URL: http://localhost:8888
-      VITE_APP_BFF_URL: http://localhost:8082
-    depends_on:
-      keycloak:
-        condition: service_healthy
+      VITE_KEYCLOAK_CLIENT_ID: app2-client
+      VITE_APP_NAME: "App B"
+      BFF_URL: http://bff-b:8080
 
-  app2-bff:
-    image: gradle:8.5
-    working_dir: /app
-    command: sh -c "gradle run --no-daemon"
-    volumes:
-      - ./app2/bff:/app
+  web-c:
+    <<: *web-common
     ports:
-      - "8082:8082"
-    networks:
-      - keycloak-network
+      - "5175:5173"
     environment:
-      MICRONAUT_SERVER_PORT: 8082
+      VITE_KEYCLOAK_URL: http://localhost:8888
+      VITE_KEYCLOAK_CLIENT_ID: app3-client
+      VITE_APP_NAME: "App C (admin)"
+      VITE_REQUIRED_ROLE: admin
+      BFF_URL: http://bff-c:8080
+
+  bff-a:
+    <<: *bff-common
+    ports:
+      - "8081:8080"
+    environment:
+      MICRONAUT_APPLICATION_NAME: bff-a
+      APP_SOURCE: bff-a
+      CORS_ORIGIN: http://localhost:5173
       KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
-      MICRONAUT_OIDC_CLIENT_SECRET: app2-client-secret
-    depends_on:
-      keycloak:
-        condition: service_healthy
+
+  bff-b:
+    <<: *bff-common
+    ports:
+      - "8082:8080"
+    environment:
+      MICRONAUT_APPLICATION_NAME: bff-b
+      APP_SOURCE: bff-b
+      CORS_ORIGIN: http://localhost:5174
+      KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
+
+  bff-c:
+    <<: *bff-common
+    command: sh -c "gradle --project-cache-dir /tmp/gradle-proj-c run --no-daemon"
+    ports:
+      - "8083:8080"
+    environment:
+      MICRONAUT_APPLICATION_NAME: bff-c
+      APP_SOURCE: bff-c
+      APP_REQUIRED_ROLE: admin
+      CORS_ORIGIN: http://localhost:5175
+      GRADLE_USER_HOME: /tmp/gradle-c
+      KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
 
 volumes:
   postgres_data:
