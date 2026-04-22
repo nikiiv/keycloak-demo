@@ -97,6 +97,7 @@ services:
       VITE_KEYCLOAK_CLIENT_ID: app2-client
       VITE_APP_NAME: "App B"
       VITE_APP_TITLE: "client self service"
+      VITE_FORBIDDEN_ROLE: client
       BFF_URL: http://bff-b:8080
 
   web-c:
@@ -109,26 +110,32 @@ services:
       VITE_APP_NAME: "App C (admin)"
       VITE_APP_TITLE: "restricted admin area"
       VITE_REQUIRED_ROLE: admin
+      VITE_FORBIDDEN_ROLE: client
       BFF_URL: http://bff-c:8080
 
   bff-a:
     <<: *bff-common
+    command: sh -c "gradle --project-cache-dir /tmp/gradle-proj-a run --no-daemon"
     ports:
       - "8081:8080"
     environment:
       MICRONAUT_APPLICATION_NAME: bff-a
       APP_SOURCE: bff-a
       CORS_ORIGIN: http://localhost:5173
+      GRADLE_USER_HOME: /tmp/gradle-a
       KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
 
   bff-b:
     <<: *bff-common
+    command: sh -c "gradle --project-cache-dir /tmp/gradle-proj-b run --no-daemon"
     ports:
       - "8082:8080"
     environment:
       MICRONAUT_APPLICATION_NAME: bff-b
       APP_SOURCE: bff-b
+      APP_FORBIDDEN_ROLE: client
       CORS_ORIGIN: http://localhost:5174
+      GRADLE_USER_HOME: /tmp/gradle-b
       KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
 
   bff-c:
@@ -140,6 +147,7 @@ services:
       MICRONAUT_APPLICATION_NAME: bff-c
       APP_SOURCE: bff-c
       APP_REQUIRED_ROLE: admin
+      APP_FORBIDDEN_ROLE: client
       CORS_ORIGIN: http://localhost:5175
       GRADLE_USER_HOME: /tmp/gradle-c
       KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm

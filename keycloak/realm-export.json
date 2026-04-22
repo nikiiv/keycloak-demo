@@ -131,8 +131,11 @@
       {
         "name": "admin",
         "description": "Administrator role"
+      },
+      {
+        "name": "client",
+        "description": "Client role"
       }
     ]
-  },
-  "defaultRoles": ["user"]
+  }
 }

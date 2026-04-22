@@ -21,8 +21,9 @@ public class DemoUserStorageProvider
     private static final Logger LOG = Logger.getLogger(DemoUserStorageProvider.class);
 
     static final Map<String, DemoUserRecord> USERS = Map.of(
-            "demoadmin", new DemoUserRecord("demoadmin", "123", "demoadmin@example.com", "Demo", "Admin", Set.of("admin", "user")),
-            "demouser",  new DemoUserRecord("demouser",  "123", "demouser@example.com",  "Demo", "User",  Set.of("user"))
+            "demoadmin",  new DemoUserRecord("demoadmin",  "123", "demoadmin@example.com",  "Demo", "Admin",  Set.of("admin", "user")),
+            "demouser",   new DemoUserRecord("demouser",   "123", "demouser@example.com",   "Demo", "User",   Set.of("user")),
+            "democlient", new DemoUserRecord("democlient", "123", "democlient@example.com", "Demo", "Client", Set.of("client"))
     );
 
     private final KeycloakSession session;

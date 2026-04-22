@@ -4,6 +4,7 @@ import { User, BffResult, getUser, getBffUser, login, logout, isAuthenticated, h
 const APP_NAME = import.meta.env.VITE_APP_NAME ?? 'SSO Demo';
 const APP_TITLE = (import.meta.env.VITE_APP_TITLE ?? APP_NAME) as string;
 const REQUIRED_ROLE = (import.meta.env.VITE_REQUIRED_ROLE ?? '').trim();
+const FORBIDDEN_ROLE = (import.meta.env.VITE_FORBIDDEN_ROLE ?? '').trim();
 
 document.title = APP_TITLE;
 
@@ -50,19 +51,31 @@ export class DemoApp {
   }
 
   renderUnauthorizedBanner() {
-    if (!REQUIRED_ROLE) return '';
     if (!isAuthenticated()) return '';
-    if (hasRole(REQUIRED_ROLE)) return '';
 
     const username = this.user?.username ?? '(unknown)';
     const roles = this.user?.roles ?? [];
     const rolesStr = roles.length ? roles.map(r => `<code>${r}</code>`).join(' ') : '<em>none</em>';
-    return `
-      <div class="unauth-banner">
-        <strong>⚠ Your current authorization does not allow you to use this app.</strong>
-        <div>This app requires role <code>${REQUIRED_ROLE}</code>. You are logged in as <code>${username}</code> with roles: ${rolesStr}.</div>
-      </div>
-    `;
+
+    if (FORBIDDEN_ROLE && hasRole(FORBIDDEN_ROLE)) {
+      return `
+        <div class="unauth-banner forbidden-role">
+          <strong>⛔ This is not a <code>${FORBIDDEN_ROLE}</code> area.</strong>
+          <div>Users holding the <code>${FORBIDDEN_ROLE}</code> role cannot use this app. You are logged in as <code>${username}</code> with roles: ${rolesStr}.</div>
+        </div>
+      `;
+    }
+
+    if (REQUIRED_ROLE && !hasRole(REQUIRED_ROLE)) {
+      return `
+        <div class="unauth-banner">
+          <strong>⚠ Your current authorization does not allow you to use this app.</strong>
+          <div>This app requires role <code>${REQUIRED_ROLE}</code>. You are logged in as <code>${username}</code> with roles: ${rolesStr}.</div>
+        </div>
+      `;
+    }
+
+    return '';
   }
 
   renderContent() {
