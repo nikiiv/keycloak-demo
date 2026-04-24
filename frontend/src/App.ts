@@ -90,6 +90,7 @@ export class DemoApp {
         ${workLink}
         <a href="/protected">Protected</a>
         <a href="/profile">Profile</a>
+        ${this.renderSessionChip()}
         <div class="nav-brand">
           <span class="nav-brand-mark">${COPY.brandMark}</span>
           <span class="nav-brand-text">
@@ -104,6 +105,21 @@ export class DemoApp {
       </div>
     `;
     this.attachEventListeners();
+  }
+
+  renderSessionChip() {
+    if (!isAuthenticated()) return '';
+    const username = this.user?.username ?? '(unknown)';
+    const email = this.user?.email ?? '';
+    return `
+      <div class="nav-session">
+        <div class="nav-user">
+          <div class="nav-user-name">${username}</div>
+          ${email ? `<div class="nav-user-email">${email}</div>` : ''}
+        </div>
+        <button id="navLogoutBtn" class="logout small">Sign out</button>
+      </div>
+    `;
   }
 
   hasAppAccess(): boolean {
@@ -462,6 +478,9 @@ export class DemoApp {
 
     const logoutBtn = document.getElementById('logoutBtn');
     if (logoutBtn) logoutBtn.addEventListener('click', () => logout());
+
+    const navLogoutBtn = document.getElementById('navLogoutBtn');
+    if (navLogoutBtn) navLogoutBtn.addEventListener('click', () => logout());
 
     document.querySelectorAll<HTMLFormElement>('[data-demo-form]').forEach(form => {
       form.addEventListener('submit', (e) => {

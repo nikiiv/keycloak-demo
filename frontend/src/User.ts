@@ -50,7 +50,10 @@ export async function getBffUser(): Promise<BffResult | null> {
 }
 
 export function login() {
-  keycloak.login();
+  // Land on /work after a successful auth round-trip. Keycloak honors
+  // redirectUri as long as it matches one of the client's redirectUris
+  // patterns (configured as "http://localhost:<port>/*" in realm-export.json).
+  keycloak.login({ redirectUri: window.location.origin + '/work' });
 }
 
 export function logout() {
