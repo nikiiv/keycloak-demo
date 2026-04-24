@@ -16,15 +16,13 @@ Three demo users (SPI-hardcoded) — identified by email because `loginWithEmail
 
 After username/password, Keycloak requires a 6-digit email OTP (see "2FA gotchas" below).
 
-Per-app role model, enforced **both** in the frontend (banners) and BFF (403 with structured JSON):
+Per-app role model. The BFF is the source of truth: each bff reads `APP_ALLOWED_ROLES` (comma-separated). On `/api/user` the BFF either returns 200 (user holds at least one allowed role, or the list is empty) or 403 with `reason: "not_allowed"` and `{allowedRoles, yourRoles, message}`. The frontend does not have its own role env vars — it reads the rule off the BFF response and mirrors the state (banner + greyed Work nav).
 
-| User / App | A | B | C |
+| User / App | A (`APP_ALLOWED_ROLES` unset) | B (`user,admin`) | C (`admin`) |
 |---|---|---|---|
-| democlient | ✓ | forbidden_role | forbidden_role |
-| demouser | ✓ | ✓ | missing_required_role |
-| demoadmin | ✓ | ✓ | ✓ |
-
-Gating is env-driven: `APP_FORBIDDEN_ROLE` / `VITE_FORBIDDEN_ROLE` and `APP_REQUIRED_ROLE` / `VITE_REQUIRED_ROLE`. Forbidden is checked before required.
+| democlient (`client`) | ✓ 200 | ✗ 403 | ✗ 403 |
+| demouser (`user`) | ✓ 200 | ✓ 200 | ✗ 403 |
+| demoadmin (`admin, user`) | ✓ 200 | ✓ 200 | ✓ 200 |
 
 ## Layout and where to make common changes
 

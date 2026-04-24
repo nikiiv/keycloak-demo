@@ -3,8 +3,6 @@ import { User, BffResult, getUser, getBffUser, login, logout, isAuthenticated, h
 
 const APP_NAME = import.meta.env.VITE_APP_NAME ?? 'SSO Demo';
 const APP_TITLE = (import.meta.env.VITE_APP_TITLE ?? APP_NAME) as string;
-const REQUIRED_ROLE = (import.meta.env.VITE_REQUIRED_ROLE ?? '').trim();
-const FORBIDDEN_ROLE = (import.meta.env.VITE_FORBIDDEN_ROLE ?? '').trim();
 const APP_THEME = (import.meta.env.VITE_APP_THEME ?? 'a').toLowerCase();
 
 document.title = APP_TITLE;
@@ -83,10 +81,13 @@ export class DemoApp {
 
   render() {
     const app = document.getElementById('app')!;
+    const workLink = this.hasAppAccess()
+      ? '<a href="/work">Work</a>'
+      : `<span class="nav-disabled" aria-disabled="true" title="Not available — ${this.accessBlockReason().replace(/`/g, '')}">Work</span>`;
     app.innerHTML = `
       <nav>
         <a href="/">Home</a>
-        <a href="/work">Work</a>
+        ${workLink}
         <a href="/protected">Protected</a>
         <a href="/profile">Profile</a>
         <div class="nav-brand">
@@ -105,32 +106,34 @@ export class DemoApp {
     this.attachEventListeners();
   }
 
+  hasAppAccess(): boolean {
+    if (!isAuthenticated()) return true;
+    if (this.bff === null) return true;
+    return this.bff.ok;
+  }
+
+  accessBlockReason(): string {
+    const body: any = this.bff?.body ?? {};
+    return body.message ?? 'Not authorized for this app.';
+  }
+
   renderUnauthorizedBanner() {
-    if (!isAuthenticated()) return '';
+    if (!isAuthenticated() || !this.bff || this.bff.ok) return '';
 
-    const username = this.user?.username ?? '(unknown)';
-    const roles = this.user?.roles ?? [];
-    const rolesStr = roles.length ? roles.map(r => `<code>${r}</code>`).join(' ') : '<em>none</em>';
+    const body: any = this.bff.body ?? {};
+    const username = body.username ?? this.user?.username ?? '(unknown)';
+    const allowed = (body.allowedRoles ?? []) as string[];
+    const yours = (body.yourRoles ?? this.user?.roles ?? []) as string[];
+    const allowedStr = allowed.length ? allowed.map(r => `<code>${r}</code>`).join(' ') : '<em>(none configured)</em>';
+    const yoursStr = yours.length ? yours.map(r => `<code>${r}</code>`).join(' ') : '<em>none</em>';
+    const message = body.message ?? 'Not authorized for this app.';
 
-    if (FORBIDDEN_ROLE && hasRole(FORBIDDEN_ROLE)) {
-      return `
-        <div class="unauth-banner forbidden-role">
-          <strong>⛔ This is not a <code>${FORBIDDEN_ROLE}</code> area.</strong>
-          <div>Users holding the <code>${FORBIDDEN_ROLE}</code> role cannot use this app. You are logged in as <code>${username}</code> with roles: ${rolesStr}.</div>
-        </div>
-      `;
-    }
-
-    if (REQUIRED_ROLE && !hasRole(REQUIRED_ROLE)) {
-      return `
-        <div class="unauth-banner">
-          <strong>⚠ Your current authorization does not allow you to use this app.</strong>
-          <div>This app requires role <code>${REQUIRED_ROLE}</code>. You are logged in as <code>${username}</code> with roles: ${rolesStr}.</div>
-        </div>
-      `;
-    }
-
-    return '';
+    return `
+      <div class="unauth-banner">
+        <strong>⛔ ${message}</strong>
+        <div>Logged in as <code>${username}</code>. Allowed role(s): ${allowedStr}. You hold: ${yoursStr}.</div>
+      </div>
+    `;
   }
 
   renderContent() {
@@ -147,6 +150,14 @@ export class DemoApp {
         <h1>Work</h1>
         <p class="error">Please sign in to access your workspace.</p>
         <button id="loginBtn">Sign in</button>
+      `;
+    }
+    if (!this.hasAppAccess()) {
+      const reason = this.accessBlockReason().replace(/`([^`]+)`/g, '<code>$1</code>');
+      return `
+        <h1>Work</h1>
+        <p class="error">This workspace isn't available for your role. ${reason}</p>
+        <p>Your role-level access is enforced server-side by the BFF; this tab is disabled client-side to match.</p>
       `;
     }
     if (APP_THEME === 'c') return this.renderWorkAdmin();

@@ -46,5 +46,4 @@ endpoints:
 
 app:
   source: ${APP_SOURCE:bff}
-  required-role: ${APP_REQUIRED_ROLE:}
-  forbidden-role: ${APP_FORBIDDEN_ROLE:}
+  allowed-roles: ${APP_ALLOWED_ROLES:}

@@ -99,7 +99,6 @@ services:
       VITE_APP_NAME: "App B"
       VITE_APP_TITLE: "client self service"
       VITE_APP_THEME: "b"
-      VITE_FORBIDDEN_ROLE: client
       BFF_URL: http://bff-b:8080
 
   web-c:
@@ -112,8 +111,6 @@ services:
       VITE_APP_NAME: "App C (admin)"
       VITE_APP_TITLE: "restricted admin area"
       VITE_APP_THEME: "c"
-      VITE_REQUIRED_ROLE: admin
-      VITE_FORBIDDEN_ROLE: client
       BFF_URL: http://bff-c:8080
 
   bff-a:
@@ -133,7 +130,7 @@ services:
     environment:
       MICRONAUT_APPLICATION_NAME: bff-b
       APP_SOURCE: bff-b
-      APP_FORBIDDEN_ROLE: client
+      APP_ALLOWED_ROLES: "user,admin"
       CORS_ORIGIN: http://localhost:5174
       KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
 
@@ -144,8 +141,7 @@ services:
     environment:
       MICRONAUT_APPLICATION_NAME: bff-c
       APP_SOURCE: bff-c
-      APP_REQUIRED_ROLE: admin
-      APP_FORBIDDEN_ROLE: client
+      APP_ALLOWED_ROLES: "admin"
       CORS_ORIGIN: http://localhost:5175
       KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
 

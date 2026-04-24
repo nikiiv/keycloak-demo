@@ -31,17 +31,17 @@ Login is by **email + password + a 6-digit code emailed via Resend** (valid 10 m
                                                   └─────────────┘
 ```
 
-Each compose service passes its own `VITE_KEYCLOAK_CLIENT_ID` (`app1-client` / `app2-client` / `app3-client`) and `APP_SOURCE` (`bff-a` / `bff-b` / `bff-c`) so the same source tree behaves as three independent OIDC clients. App B and App C use `VITE_FORBIDDEN_ROLE=client` / `APP_FORBIDDEN_ROLE=client` to block client-role users; App C additionally uses `VITE_REQUIRED_ROLE=admin` / `APP_REQUIRED_ROLE=admin` to require the admin role.
+Each compose service passes its own `VITE_KEYCLOAK_CLIENT_ID` (`app1-client` / `app2-client` / `app3-client`) and `APP_SOURCE` (`bff-a` / `bff-b` / `bff-c`) so the same source tree behaves as three independent OIDC clients. App-level role gating is configured on the BFF only, via a single `APP_ALLOWED_ROLES` env var (comma-separated). App B uses `APP_ALLOWED_ROLES=user,admin`; App C uses `APP_ALLOWED_ROLES=admin`; App A has no gate. The frontend learns the rule from the BFF's `/api/user` response, so there is no matching `VITE_*` role var — the BFF is the single source of truth.
 
 ## Access matrix
 
-| User → | App A | App B | App C |
+| User → | App A (open) | App B (`user,admin`) | App C (`admin`) |
 |---|---|---|---|
-| `democlient` (role: `client`) | ✓ 200 | ✗ 403 — forbidden role | ✗ 403 — forbidden role |
-| `demouser` (role: `user`) | ✓ 200 | ✓ 200 | ✗ 403 — missing required role |
+| `democlient` (role: `client`) | ✓ 200 | ✗ 403 — not allowed | ✗ 403 — not allowed |
+| `demouser` (role: `user`) | ✓ 200 | ✓ 200 | ✗ 403 — not allowed |
 | `demoadmin` (roles: `admin`, `user`) | ✓ 200 | ✓ 200 | ✓ 200 |
 
-Enforcement happens both in the frontend (banners) and the BFF (`/api/user` returns a structured 403 JSON body). The BFF check is the authoritative one; the frontend banner is a UX hint.
+Enforcement happens in the BFF (`/api/user` returns a structured 403 with `reason: "not_allowed"` and `{allowedRoles, yourRoles, message}`). The frontend mirrors the state — red banner + greyed Work nav — by reading the BFF's response, so there's only ever one rule in one place.
 
 ## Services
 
@@ -53,8 +53,8 @@ Enforcement happens both in the frontend (banners) and the BFF (`/api/user` retu
 | web-b | 5174 | Vite dev server, OIDC client `app2-client`, blocks `client` role |
 | web-c | 5175 | Vite dev server, OIDC client `app3-client`, requires `admin`, blocks `client` |
 | bff-a | 8081 | Micronaut backend for web-a |
-| bff-b | 8082 | Micronaut backend for web-b (enforces `APP_FORBIDDEN_ROLE=client`) |
-| bff-c | 8083 | Micronaut backend for web-c (enforces `APP_REQUIRED_ROLE=admin` + forbidden `client`) |
+| bff-b | 8082 | Micronaut backend for web-b (enforces `APP_ALLOWED_ROLES=user,admin`) |
+| bff-c | 8083 | Micronaut backend for web-c (enforces `APP_ALLOWED_ROLES=admin`) |
 
 ## Quick Start
 
@@ -92,7 +92,7 @@ Copy `.envrc.example` to `.envrc` (it's gitignored, because it also holds the Re
 5. Visit the **Profile** tab to see the username, email, name, and realm roles from the JWT.
 6. Visit the **Protected** tab to see the BFF's view of the same user (fetched via `/api/user`). The `source` field shows which BFF responded (`bff-a`), and the panel color reflects the role.
 7. Open http://localhost:5174 (App B) in a new tab — SSO logs you in automatically (**no second OTP**: the Keycloak session cookie satisfies the first-factor step, and the OTP authenticator only runs during an interactive login). As `demouser` / `demoadmin` you'll see the Protected page; as `democlient` a dark "not a client area" banner appears on every page and the BFF returns 403.
-8. Open http://localhost:5175 (App C). As `demoadmin` you get the Protected page (red panel). As `demouser` you get a red "requires admin" banner on every page. As `democlient` you get the "not a client area" banner (the forbidden-role check takes precedence over the required-role check).
+8. Open http://localhost:5175 (App C). As `demoadmin` you get the Protected page (red panel). As `demouser` or `democlient` you get a single red banner on every page — it reads back the `allowedRoles` the BFF told it about and the roles you actually hold.
 
 ## Visual states
 
@@ -104,14 +104,13 @@ Copy `.envrc.example` to `.envrc` (it's gitignored, because it also holds the Re
 | Authenticated without `admin` | Blue | `democlient` or `demouser` |
 | Authenticated with `admin` | Red | `demoadmin` |
 
-**Banners** appear on every page of the affected app:
+**Banner** appears on every page when the BFF returns 403:
 
 | Condition | Banner |
 |---|---|
-| On App B or C, user has role `client` | ⛔ **dark red** "not a `client` area" banner |
-| On App C, user authenticated but lacks `admin` | ⚠ **red** "requires role `admin`" banner |
+| Authenticated user doesn't hold any of the app's `allowedRoles` | ⛔ **red** banner listing the allowed role(s) and the roles the user holds (text is whatever the BFF put in `message`) |
 
-The forbidden-role banner takes precedence when both conditions apply.
+The banner content is rendered from the BFF's 403 body (`message`, `allowedRoles`, `yourRoles`) — there's no role-matching logic on the frontend.
 
 ## Endpoints
 
@@ -124,8 +123,10 @@ Frontends proxy `/api/*` to their BFF via Vite's dev-server proxy, so browser ca
 
 ### BFF APIs (also reachable directly on the host for testing with curl)
 - bff-a: http://localhost:8081/api/user, /api/secure, /api/public
-- bff-b: http://localhost:8082/api/user (returns 403 with `reason: "forbidden_role"` for `client`)
-- bff-c: http://localhost:8083/api/user (403 with `reason: "forbidden_role"` for `client`; 403 with `reason: "missing_required_role"` for non-admin; 200 for admin)
+- bff-b: http://localhost:8082/api/user (200 if token roles intersect `[user, admin]`, else 403 with `reason: "not_allowed"`)
+- bff-c: http://localhost:8083/api/user (200 only for `admin`, else 403 with `reason: "not_allowed"`)
+
+Both 200 and 403 bodies include `allowedRoles` so the frontend can render the rule without duplicating it.
 
 ### Keycloak Admin
 - URL: http://localhost:8888
@@ -299,13 +300,10 @@ The same `frontend/` and `bff/` sources are launched three times — every app-s
 | `VITE_KEYCLOAK_CLIENT_ID` | `frontend/src/Keycloak.ts` | Which OIDC client to authenticate as |
 | `VITE_APP_NAME` | `frontend/src/App.ts` | Display label in nav + headings |
 | `VITE_APP_TITLE` | `frontend/index.html`, `frontend/src/App.ts` | Browser tab title (defaults to `VITE_APP_NAME` if unset) |
-| `VITE_REQUIRED_ROLE` | `frontend/src/App.ts` | If set, show "requires role X" banner when user lacks it (App C: `admin`) |
-| `VITE_FORBIDDEN_ROLE` | `frontend/src/App.ts` | If set, show "not a X area" banner when user has it (App B, C: `client`) |
 | `BFF_URL` | `frontend/vite.config.ts` | Proxy target for `/api/*` from this frontend |
 | `MICRONAUT_APPLICATION_NAME` | Micronaut | Service name in logs |
 | `APP_SOURCE` | `bff/src/main/java/demo/UserController.java` | Value of the `source` field in BFF responses |
-| `APP_REQUIRED_ROLE` | `bff/src/main/java/demo/UserController.java` | If set, `/api/user` returns 403 with `reason: "missing_required_role"` when the token lacks this role (bff-c: `admin`) |
-| `APP_FORBIDDEN_ROLE` | `bff/src/main/java/demo/UserController.java` | If set, `/api/user` returns 403 with `reason: "forbidden_role"` when the token has this role (bff-b, bff-c: `client`); checked before the required-role check |
+| `APP_ALLOWED_ROLES` | `bff/src/main/java/demo/UserController.java` | Comma-separated. If empty, `/api/user` is open to any authenticated user; otherwise the token must hold at least one listed role or the BFF returns 403 with `reason: "not_allowed"`. Both 200 and 403 bodies include `allowedRoles` so the frontend mirrors the rule without its own role env var (bff-b: `user,admin`; bff-c: `admin`). |
 | `CORS_ORIGIN` | `bff/src/main/resources/application.yml` | Single allowed origin (the paired frontend) |
 | `KEYCLOAK_AUTH_SERVER_URL` | BFF | Internal URL to Keycloak for JWKS lookup |
 
