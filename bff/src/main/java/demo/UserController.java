@@ -2,6 +2,7 @@ package demo;
 
 import io.micronaut.context.annotation.Value;
 import io.micronaut.http.HttpResponse;
+import io.micronaut.http.HttpStatus;
 import io.micronaut.http.MediaType;
 import io.micronaut.http.annotation.Controller;
 import io.micronaut.http.annotation.Get;
@@ -10,7 +11,9 @@ import io.micronaut.security.annotation.Secured;
 import io.micronaut.security.authentication.Authentication;
 
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Controller("/api")
@@ -18,46 +21,36 @@ import java.util.Map;
 public class UserController {
 
     private final String source;
-    private final String requiredRole;
-    private final String forbiddenRole;
+    private final List<String> allowedRoles;
 
     public UserController(@Value("${app.source:bff}") String source,
-                          @Value("${app.required-role:}") String requiredRole,
-                          @Value("${app.forbidden-role:}") String forbiddenRole) {
+                          @Value("${app.allowed-roles:}") List<String> allowedRoles) {
         this.source = source;
-        this.requiredRole = requiredRole == null ? "" : requiredRole.trim();
-        this.forbiddenRole = forbiddenRole == null ? "" : forbiddenRole.trim();
+        this.allowedRoles = allowedRoles.stream()
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
     }
 
     @Get("/user")
     @Secured({"isAuthenticated()"})
     public HttpResponse<Map<String, Object>> getUser(Authentication authentication) {
         Collection<String> roles = authentication.getRoles();
-        if (!forbiddenRole.isEmpty() && roles.contains(forbiddenRole)) {
-            Map<String, Object> forbidden = new HashMap<>();
-            forbidden.put("error", "forbidden");
-            forbidden.put("reason", "forbidden_role");
-            forbidden.put("message", "This app is not available to users holding the `" + forbiddenRole + "` role.");
-            forbidden.put("username", authentication.getName());
-            forbidden.put("forbiddenRole", forbiddenRole);
-            forbidden.put("yourRoles", roles);
-            forbidden.put("source", source);
-            return HttpResponse.<Map<String, Object>>status(io.micronaut.http.HttpStatus.FORBIDDEN).body(forbidden);
-        }
-        if (!requiredRole.isEmpty() && !roles.contains(requiredRole)) {
-            Map<String, Object> forbidden = new HashMap<>();
-            forbidden.put("error", "forbidden");
-            forbidden.put("reason", "missing_required_role");
-            forbidden.put("message", "Authenticated, but not authorized for this app.");
-            forbidden.put("username", authentication.getName());
-            forbidden.put("requiredRole", requiredRole);
-            forbidden.put("yourRoles", roles);
-            forbidden.put("source", source);
-            return HttpResponse.<Map<String, Object>>status(io.micronaut.http.HttpStatus.FORBIDDEN).body(forbidden);
+        if (!allowedRoles.isEmpty() && Collections.disjoint(allowedRoles, roles)) {
+            Map<String, Object> body = new HashMap<>();
+            body.put("error", "forbidden");
+            body.put("reason", "not_allowed");
+            body.put("message", "This app is restricted to role(s): " + String.join(", ", allowedRoles) + ".");
+            body.put("username", authentication.getName());
+            body.put("allowedRoles", allowedRoles);
+            body.put("yourRoles", roles);
+            body.put("source", source);
+            return HttpResponse.<Map<String, Object>>status(HttpStatus.FORBIDDEN).body(body);
         }
         Map<String, Object> user = new HashMap<>();
         user.put("username", authentication.getName());
         user.put("roles", roles);
+        user.put("allowedRoles", allowedRoles);
         user.put("source", source);
         authentication.getAttributes().forEach(user::put);
         return HttpResponse.ok(user);

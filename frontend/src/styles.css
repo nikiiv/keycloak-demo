@@ -51,9 +51,6 @@
   --banner-bg: #ffe0e0;
   --banner-fg: #7a0000;
   --banner-border: #cc0000;
-  --banner-forbidden-bg: #3a1414;
-  --banner-forbidden-fg: #ffd6d6;
-  --banner-forbidden-border: #000;
 }
 
 /* ---------- THEME B — Super Clients / Self-Service ---------- */
@@ -124,9 +121,6 @@
   --banner-bg: #2d0a0a;
   --banner-fg: #fecaca;
   --banner-border: #dc2626;
-  --banner-forbidden-bg: #0a0a0a;
-  --banner-forbidden-fg: #fca5a5;
-  --banner-forbidden-border: #7f1d1d;
 }
 
 /* ============================================================
@@ -222,6 +216,26 @@ nav a {
 nav a:hover {
   background: var(--border);
   color: var(--accent);
+}
+
+.nav-disabled {
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  font-size: 0.92rem;
+  color: var(--fg-muted);
+  opacity: 0.55;
+  cursor: not-allowed;
+  text-decoration: line-through;
+  text-decoration-color: var(--banner-border);
+  text-decoration-thickness: 1px;
+  user-select: none;
+}
+
+[data-theme="c"] .nav-disabled {
+  text-transform: uppercase;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
 }
 
 .nav-brand {
@@ -470,17 +484,6 @@ button.logout:hover {
   color: inherit;
   padding: 0.1rem 0.35rem;
   border-radius: 3px;
-}
-
-.unauth-banner.forbidden-role {
-  background: var(--banner-forbidden-bg);
-  border-color: var(--banner-forbidden-border);
-  color: var(--banner-forbidden-fg);
-}
-
-.unauth-banner.forbidden-role code {
-  background: rgba(255, 214, 214, 0.15);
-  color: inherit;
 }
 
 .error { color: var(--danger); }
