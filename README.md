@@ -174,7 +174,7 @@ The Resend API token is read from `RESEND_API_TOKEN`. `.envrc` is gitignored; co
 export RESEND_API_TOKEN="re_..."
 ```
 
-`docker-compose.yml` forwards this env var into the `keycloak` container. To rotate: update `.envrc`, then `podman compose up -d --force-recreate keycloak` — no image rebuild needed (the token is read from `System.getenv()` at request time, not baked in). If `RESEND_API_TOKEN` is unset, the authenticator logs a warning and the OTP only appears in the Keycloak logs (still usable for the demo; no email delivery).
+`docker-compose.yml` forwards this env var into the `keycloak` container. To rotate: update `.envrc`, then `podman compose up -d --force-recreate keycloak` — no image rebuild needed (the token is read from `System.getenv()` at request time, not baked in). If `RESEND_API_TOKEN` is unset or empty, `ResendClient.send()` short-circuits with a calm INFO log (`RESEND_API_TOKEN not set; skipping email delivery…`) — no exception, no stack trace, and the login flow continues normally; the OTP code is still visible in the banner printed above. This is the intended fallback for running the demo without a Resend account.
 
 The from-address defaults to `"Demo Realm <onboarding@resend.dev>"` via `RESEND_FROM` in the compose file.
 

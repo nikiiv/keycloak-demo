@@ -28,7 +28,10 @@ public final class ResendClient {
     public static void send(String to, String subject, String html) throws IOException, InterruptedException {
         String token = System.getenv("RESEND_API_TOKEN");
         if (token == null || token.isBlank()) {
-            throw new IOException("RESEND_API_TOKEN not set");
+            // Benign: no token configured, run in log-only mode. The authenticator has
+            // already printed the OTP banner, so this is the expected fallback path.
+            LOG.infof("RESEND_API_TOKEN not set; skipping email delivery to %s (code is in the log banner above)", to);
+            return;
         }
         String from = Optional.ofNullable(System.getenv("RESEND_FROM"))
                 .filter(s -> !s.isBlank())
