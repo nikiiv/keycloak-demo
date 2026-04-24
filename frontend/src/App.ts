@@ -86,6 +86,7 @@ export class DemoApp {
     app.innerHTML = `
       <nav>
         <a href="/">Home</a>
+        <a href="/work">Work</a>
         <a href="/protected">Protected</a>
         <a href="/profile">Profile</a>
         <div class="nav-brand">
@@ -134,9 +135,245 @@ export class DemoApp {
 
   renderContent() {
     const path = window.location.pathname;
+    if (path === '/work') return this.renderWork();
     if (path === '/protected') return this.renderProtected();
     if (path === '/profile') return this.renderProfile();
     return this.renderHome();
+  }
+
+  renderWork() {
+    if (!isAuthenticated()) {
+      return `
+        <h1>Work</h1>
+        <p class="error">Please sign in to access your workspace.</p>
+        <button id="loginBtn">Sign in</button>
+      `;
+    }
+    if (APP_THEME === 'c') return this.renderWorkAdmin();
+    if (APP_THEME === 'b') return this.renderWorkOps();
+    return this.renderWorkClient();
+  }
+
+  renderWorkClient() {
+    return `
+      <div class="work">
+        <section>
+          <div class="section-eyebrow">Account &amp; support</div>
+          <h2 class="section-title">What can we help with today?</h2>
+          <p class="section-body">Drop us a note, check on recent orders, or kick off a new request. Nothing on this tab posts for real — it's a mock workflow so you can feel the shape of the client experience.</p>
+        </section>
+
+        <section class="work-grid">
+          <div class="card">
+            <h3>New support request</h3>
+            <form data-demo-form>
+              <div class="field">
+                <label for="wc-subject">Subject</label>
+                <input id="wc-subject" type="text" placeholder="Short summary" required />
+              </div>
+              <div class="field">
+                <label for="wc-category">Category</label>
+                <select id="wc-category">
+                  <option>Billing question</option>
+                  <option>Technical issue</option>
+                  <option>Account change</option>
+                  <option>Feedback</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="wc-message">Message</label>
+                <textarea id="wc-message" rows="4" placeholder="Tell us what&rsquo;s happening"></textarea>
+              </div>
+              <button type="submit">Send request</button>
+              <span class="demo-notice" data-demo-notice></span>
+            </form>
+          </div>
+
+          <div class="card">
+            <h3>Recent orders</h3>
+            <table>
+              <thead>
+                <tr><th>Order</th><th>Placed</th><th>Status</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>#A-10422</td><td>Oct 14</td><td><span class="pill pill-ok">Delivered</span></td></tr>
+                <tr><td>#A-10491</td><td>Oct 18</td><td><span class="pill pill-warn">In transit</span></td></tr>
+                <tr><td>#A-10508</td><td>Oct 20</td><td><span class="pill pill-muted">Processing</span></td></tr>
+                <tr><td>#A-10533</td><td>Oct 22</td><td><span class="pill pill-muted">Draft</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="card card-wide">
+            <h3>Quick actions</h3>
+            <div class="button-row">
+              <button data-demo-button data-demo-result="Callback scheduled for tomorrow at 10:00 local time.">Schedule a callback</button>
+              <button data-demo-button data-demo-result="Statement PDF would be downloading now.">Download statement</button>
+              <button class="logout" data-demo-button data-demo-result="Billing portal would open in a new tab.">Manage billing</button>
+            </div>
+            <div class="demo-notice"></div>
+          </div>
+        </section>
+      </div>
+    `;
+  }
+
+  renderWorkOps() {
+    return `
+      <div class="work">
+        <section>
+          <div class="section-eyebrow">Operations console</div>
+          <h2 class="section-title">Platform overview</h2>
+        </section>
+
+        <section class="stat-grid">
+          <div class="stat-card"><div class="stat-value">24</div><div class="stat-label">Active workflows</div></div>
+          <div class="stat-card"><div class="stat-value">3</div><div class="stat-label">Pending approvals</div></div>
+          <div class="stat-card"><div class="stat-value">1,284</div><div class="stat-label">Events today</div></div>
+          <div class="stat-card"><div class="stat-value">99.98%</div><div class="stat-label">Uptime (30d)</div></div>
+        </section>
+
+        <section class="work-grid">
+          <div class="card">
+            <h3>Filter runs</h3>
+            <form data-demo-form>
+              <div class="field">
+                <label for="wo-from">From</label>
+                <input id="wo-from" type="date" />
+              </div>
+              <div class="field">
+                <label for="wo-to">To</label>
+                <input id="wo-to" type="date" />
+              </div>
+              <div class="field">
+                <label for="wo-status">Status</label>
+                <select id="wo-status">
+                  <option>All</option>
+                  <option>Succeeded</option>
+                  <option>Failed</option>
+                  <option>Retrying</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="wo-query">Search</label>
+                <input id="wo-query" type="text" placeholder="workflow id or label" />
+              </div>
+              <button type="submit">Apply filter</button>
+              <span class="demo-notice" data-demo-notice></span>
+            </form>
+          </div>
+
+          <div class="card card-wide">
+            <h3>Workflow queue</h3>
+            <table>
+              <thead>
+                <tr><th>Name</th><th>Last run</th><th>State</th><th>Actions</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>nightly-sync</td><td>02:14</td><td><span class="pill pill-ok">OK</span></td><td><button class="small" data-demo-button data-demo-result="Rerun queued.">Rerun</button> <button class="small logout" data-demo-button data-demo-result="Paused.">Pause</button></td></tr>
+                <tr><td>invoice-generator</td><td>09:50</td><td><span class="pill pill-warn">Retrying 2/5</span></td><td><button class="small" data-demo-button data-demo-result="Rerun queued.">Rerun</button> <button class="small logout" data-demo-button data-demo-result="Run cancelled.">Cancel</button></td></tr>
+                <tr><td>report-export</td><td>11:02</td><td><span class="pill pill-ok">OK</span></td><td><button class="small" data-demo-button data-demo-result="Rerun queued.">Rerun</button></td></tr>
+                <tr><td>audit-trail-backfill</td><td>yesterday</td><td><span class="pill pill-muted">Paused</span></td><td><button class="small" data-demo-button data-demo-result="Resumed.">Resume</button></td></tr>
+              </tbody>
+            </table>
+            <div class="demo-notice"></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h3>Create workflow</h3>
+          <form data-demo-form class="form-inline">
+            <div class="field">
+              <label for="wf-name">Name</label>
+              <input id="wf-name" type="text" placeholder="daily-reconcile" />
+            </div>
+            <div class="field">
+              <label for="wf-type">Type</label>
+              <select id="wf-type">
+                <option>Batch</option>
+                <option>Streaming</option>
+                <option>Scheduled</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="wf-cron">Schedule</label>
+              <input id="wf-cron" type="text" placeholder="0 2 * * *" />
+            </div>
+            <div class="field">
+              <label class="checkbox-row"><input type="checkbox" checked /> Auto-retry on failure</label>
+            </div>
+            <button type="submit">Create workflow</button>
+            <span class="demo-notice" data-demo-notice></span>
+          </form>
+        </section>
+      </div>
+    `;
+  }
+
+  renderWorkAdmin() {
+    return `
+      <div class="work">
+        <section class="status-strip">
+          <span class="status-dot status-ok"></span>
+          <span class="status-label">SYSTEM</span>
+          <span class="status-value">NOMINAL</span>
+          <span class="status-sep">·</span>
+          <span class="status-label">SESSIONS</span><span class="status-value">3</span>
+          <span class="status-sep">·</span>
+          <span class="status-label">AUTH FAIL (1h)</span><span class="status-value">2</span>
+          <span class="status-sep">·</span>
+          <span class="status-label">UPTIME</span><span class="status-value">17d 04h</span>
+        </section>
+
+        <section class="work-grid">
+          <div class="card">
+            <h3>Recent audit log</h3>
+            <pre class="audit-log">[13:01:22Z] admin@demo  user.suspend           target=demouser   reason="repeat_auth_failure"
+[12:58:14Z] admin@demo  realm.role.grant       target=demoadmin  role=admin
+[12:48:03Z] system      session.expire         target=democlient
+[12:42:51Z] admin@demo  credentials.reset      target=demouser
+[12:30:00Z] system      keys.rotate            count=2
+[12:12:07Z] admin@demo  realm.login_theme.set  client=app3       theme=app-c</pre>
+          </div>
+
+          <div class="card">
+            <h3>User action</h3>
+            <form data-demo-form>
+              <div class="field">
+                <label for="wa-user">Target username</label>
+                <input id="wa-user" type="text" placeholder="demouser" required />
+              </div>
+              <div class="field">
+                <label for="wa-action">Action</label>
+                <select id="wa-action">
+                  <option>Suspend account</option>
+                  <option>Unsuspend account</option>
+                  <option>Reset credentials</option>
+                  <option>Elevate to admin</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="wa-reason">Reason (required for audit)</label>
+                <textarea id="wa-reason" rows="3" placeholder="Short justification" required></textarea>
+              </div>
+              <button type="submit">Execute</button>
+              <span class="demo-notice" data-demo-notice></span>
+            </form>
+          </div>
+        </section>
+
+        <section class="card card-danger">
+          <h3>Emergency actions</h3>
+          <p class="section-body">Every action below is logged and would require a second admin to unlock. Use only when operationally justified.</p>
+          <div class="button-row">
+            <button class="danger" data-demo-button data-demo-result="LOCKDOWN initiated. All authentication flows paused.">⚠ Lock down realm</button>
+            <button class="danger" data-demo-button data-demo-result="Key rotation queued. 3 of 3 keys rotated in 12s.">Rotate signing keys</button>
+            <button class="danger" data-demo-button data-demo-result="All active sessions invalidated.">Purge all sessions</button>
+          </div>
+          <div class="demo-notice"></div>
+        </section>
+      </div>
+    `;
   }
 
   renderHome() {
@@ -214,6 +451,30 @@ export class DemoApp {
 
     const logoutBtn = document.getElementById('logoutBtn');
     if (logoutBtn) logoutBtn.addEventListener('click', () => logout());
+
+    document.querySelectorAll<HTMLFormElement>('[data-demo-form]').forEach(form => {
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const notice = form.querySelector<HTMLElement>('.demo-notice');
+        if (notice) {
+          notice.textContent = 'Submitted — demo mode, nothing was sent.';
+          notice.classList.add('visible');
+        }
+      });
+    });
+
+    document.querySelectorAll<HTMLButtonElement>('[data-demo-button]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const msg = btn.dataset.demoResult ?? 'Action simulated (demo).';
+        const scope = btn.closest<HTMLElement>('.card, section') ?? document.body;
+        const notice = scope.querySelector<HTMLElement>('.demo-notice');
+        if (notice) {
+          notice.textContent = msg;
+          notice.classList.add('visible');
+        }
+      });
+    });
 
     window.addEventListener('popstate', () => this.render());
   }
