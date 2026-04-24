@@ -29,7 +29,7 @@ Gating is env-driven: `APP_FORBIDDEN_ROLE` / `VITE_FORBIDDEN_ROLE` and `APP_REQU
 ## Layout and where to make common changes
 
 - `frontend/` — shared SPA source. `src/App.ts` has the banner + Protected-panel rendering; `src/User.ts` wraps Keycloak/BFF calls; `index.html` has all CSS.
-- `bff/` — shared Micronaut backend. `src/main/java/demo/UserController.java` has the role checks; `src/main/resources/application.yml` maps env vars to `app.*` config.
+- `bff/` — shared Micronaut backend. `src/main/java/demo/UserController.java` has the role checks; `src/main/resources/application.yml` maps env vars to `app.*` config. `bff/Dockerfile` builds a single fat-jar image (`keycloak-demo-bff:latest`) shared by all three `bff-*` services.
 - `keycloak/realm-export.json` — realm seed: clients, realm roles, default-role composite, SPI component registration.
 - `keycloak-provider/` — standalone Gradle project shipping **two** SPIs in one jar: the User Storage provider (`DemoUserStorageProvider`) and the Email-OTP Authenticator (`EmailOtpAuthenticator` + factory + `ResendClient`). Two service files under `src/main/resources/META-INF/services/` register them. The OTP form lives in `src/main/resources/theme-resources/templates/email-otp.ftl`. To add a user, edit the `USERS` map in `DemoUserStorageProvider.java` and rebuild the Keycloak image (`podman compose build keycloak && podman compose up -d --force-recreate keycloak`).
 - `docker-compose.yml` — parameterizes every app-specific value via env vars. Three web services (5173/5174/5175), three BFFs (8081/8082/8083), plus Keycloak (8888) and Postgres.
@@ -41,8 +41,8 @@ Gating is env-driven: `APP_FORBIDDEN_ROLE` / `VITE_FORBIDDEN_ROLE` and `APP_REQU
 - **Realm imports are `IGNORE_EXISTING` by default.** `--import-realm` seeds an empty Postgres only. To apply a `realm-export.json` edit on a running stack, either `podman compose down -v && up` (wipes everything) or change the live realm via admin API (fast, preserves sessions). Always update both if you want reproducibility.
 - **SPI auto-creates realm roles.** `DemoUser.getRoleMappingsInternal()` calls `realm.addRole(name)` if a referenced role is missing, so roles named by SPI records that aren't in `realm-export.json` still work at runtime — but a fresh-DB install would lack them until the first login. Keep BFF-gated role names declared in the JSON too.
 - **`defaultRoles` is deprecated in Keycloak 26.** The realm JSON no longer has `"defaultRoles"`; the old effect (every user gets `user`) lived in the `default-roles-demo-realm` composite, from which we removed `user`. Don't add `defaultRoles` back — it won't behave as you expect.
-- **Each BFF needs its own Gradle cache.** `./bff/` is bind-mounted into three containers, and Gradle's project cache (`./bff/.gradle/`) takes an exclusive lock. Every BFF service sets `GRADLE_USER_HOME=/tmp/gradle-<x>` and `--project-cache-dir /tmp/gradle-proj-<x>`. If you add a fourth BFF, do the same or it will fail with `Timeout waiting to lock checksums cache`.
-- **Gradle build artifacts shared.** `./bff/build/` is also in the bind mount. Stale class files here can survive compile-signature changes and cause puzzling errors; `rm -rf bff/build` before a restart if you hit weird type errors.
+- **BFF runs as a baked fat jar, not `gradle run`.** The Micronaut app is built once via `bff/Dockerfile` (shadow jar produced by `com.gradleup.shadow` plugin, then copied into an `eclipse-temurin:17-jre` base) and all three `bff-*` services share the `keycloak-demo-bff:latest` image. PID 1 inside each container is `java -jar /app/bff.jar`; there is no source tree, no Gradle cache, and no bind mount. A source edit needs `podman compose up -d --build --force-recreate bff-a bff-b bff-c` — not a plain `restart`. The `--force-recreate` matters: after a rebuild, the `keycloak-demo-bff:latest` tag points to a new image ID, but existing containers still hold the *old* ID at creation time. `up -d` alone won't notice; `--force-recreate` unconditionally destroys + recreates the three containers so they bind to the new image.
+- **Shadow plugin is declared explicitly in `bff/build.gradle`.** Micronaut 4.4's application plugin doesn't register `shadowJar` on its own (it prefers its own `buildLayers`/`dockerBuild` flow); we add `id("com.gradleup.shadow") version "8.3.5"` so `gradle shadowJar` produces `build/libs/*-all.jar` for the Dockerfile to copy.
 - **Keycloak admin API is on port 8888 (not 8080).** Get a token at `/realms/master/protocol/openid-connect/token` with `client_id=admin-cli&grant_type=password&username=admin&password=admin`. Admin endpoints live under `/admin/realms/demo-realm/...`.
 - **`keycloak-js` must be ≥ 26.x.** Older versions validate a `nonce` claim that Keycloak 26 no longer emits.
 
@@ -71,7 +71,7 @@ Get the real path with `podman machine inspect --format '{{.ConnectionInfo.Podma
 | Change | Minimum action |
 |---|---|
 | Frontend (SPA) source | nothing — Vite HMR picks it up |
-| BFF source | `podman compose restart bff-<x>` — Gradle incremental recompiles |
+| BFF source | `podman compose up -d --build --force-recreate bff-a bff-b bff-c` — one build, three recreates (they share the image). `--force-recreate` is the belt-and-suspenders bit: without it, some compose implementations don't notice the image ID moved and leave the old containers running. |
 | Env var on a service | `podman compose up -d --force-recreate <service>` |
 | `docker-compose.yml` structural change | `podman compose up -d` (compose picks up the diff) |
 | `keycloak-provider/` SPI source | `podman compose build keycloak && podman compose up -d --force-recreate keycloak` |
