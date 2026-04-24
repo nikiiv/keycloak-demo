@@ -6,6 +6,34 @@
   "accessTokenLifespan": 300,
   "ssoSessionIdleTimeout": 1800,
   "ssoSessionMaxLifespan": 36000,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "browserFlow": "demo-browser",
+  "authenticationFlows": [
+    {
+      "alias": "demo-browser",
+      "description": "Browser flow with email OTP as second factor",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        { "authenticator": "auth-cookie",                  "requirement": "ALTERNATIVE", "priority": 10, "autheticatorFlow": false, "userSetupAllowed": false },
+        { "authenticator": "identity-provider-redirector", "requirement": "ALTERNATIVE", "priority": 25, "autheticatorFlow": false, "userSetupAllowed": false },
+        { "flowAlias": "demo-browser forms",               "requirement": "ALTERNATIVE", "priority": 30, "autheticatorFlow": true,  "userSetupAllowed": false }
+      ]
+    },
+    {
+      "alias": "demo-browser forms",
+      "description": "Username/password, then email OTP",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        { "authenticator": "auth-username-password-form", "requirement": "REQUIRED", "priority": 10, "autheticatorFlow": false, "userSetupAllowed": false },
+        { "authenticator": "demo-email-otp",              "requirement": "REQUIRED", "priority": 20, "autheticatorFlow": false, "userSetupAllowed": false }
+      ]
+    }
+  ],
   "components": {
     "org.keycloak.storage.UserStorageProvider": [
       {

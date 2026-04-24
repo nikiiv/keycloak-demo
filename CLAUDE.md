@@ -6,7 +6,15 @@ Survival notes for working in this repo. The **README.md** is the user-facing do
 
 A Keycloak SSO demo: one Vite SPA + one Micronaut BFF, launched three times (App A/B/C) as independent OIDC clients. End-user identity comes from a custom Keycloak User Storage SPI in `keycloak-provider/` — users are a hardcoded Java `Map`, not rows in Keycloak's Postgres.
 
-Three demo users (SPI-hardcoded): `democlient/123` (role `client`), `demouser/123` (`user`), `demoadmin/123` (`admin, user`).
+Three demo users (SPI-hardcoded) — identified by email because `loginWithEmailAllowed=true`. Username still works as an alternate identifier:
+
+| Username | Email | Password | Roles |
+|---|---|---|---|
+| democlient | nikiiv.linococo@gmail.com | 123 | `client` |
+| demouser   | nikolay.ivanchev@gmail.com | 123 | `user` |
+| demoadmin  | nikolai.ivanchev@gmail.com | 123 | `admin`, `user` |
+
+After username/password, Keycloak requires a 6-digit email OTP (see "2FA gotchas" below).
 
 Per-app role model, enforced **both** in the frontend (banners) and BFF (403 with structured JSON):
 
@@ -23,7 +31,7 @@ Gating is env-driven: `APP_FORBIDDEN_ROLE` / `VITE_FORBIDDEN_ROLE` and `APP_REQU
 - `frontend/` — shared SPA source. `src/App.ts` has the banner + Protected-panel rendering; `src/User.ts` wraps Keycloak/BFF calls; `index.html` has all CSS.
 - `bff/` — shared Micronaut backend. `src/main/java/demo/UserController.java` has the role checks; `src/main/resources/application.yml` maps env vars to `app.*` config.
 - `keycloak/realm-export.json` — realm seed: clients, realm roles, default-role composite, SPI component registration.
-- `keycloak-provider/` — the User Storage SPI (standalone Gradle project). See the three-file walkthrough in README. To add a user, edit the `USERS` map in `DemoUserStorageProvider.java` and rebuild the Keycloak image (`podman compose build keycloak && podman compose up -d --force-recreate keycloak`).
+- `keycloak-provider/` — standalone Gradle project shipping **two** SPIs in one jar: the User Storage provider (`DemoUserStorageProvider`) and the Email-OTP Authenticator (`EmailOtpAuthenticator` + factory + `ResendClient`). Two service files under `src/main/resources/META-INF/services/` register them. The OTP form lives in `src/main/resources/theme-resources/templates/email-otp.ftl`. To add a user, edit the `USERS` map in `DemoUserStorageProvider.java` and rebuild the Keycloak image (`podman compose build keycloak && podman compose up -d --force-recreate keycloak`).
 - `docker-compose.yml` — parameterizes every app-specific value via env vars. Three web services (5173/5174/5175), three BFFs (8081/8082/8083), plus Keycloak (8888) and Postgres.
 - `Dockerfile.keycloak` — multi-stage: builds the SPI jar and bakes it into the Keycloak image via `kc.sh build`. SPI changes need a full image rebuild, not just a container restart.
 
@@ -37,6 +45,16 @@ Gating is env-driven: `APP_FORBIDDEN_ROLE` / `VITE_FORBIDDEN_ROLE` and `APP_REQU
 - **Gradle build artifacts shared.** `./bff/build/` is also in the bind mount. Stale class files here can survive compile-signature changes and cause puzzling errors; `rm -rf bff/build` before a restart if you hit weird type errors.
 - **Keycloak admin API is on port 8888 (not 8080).** Get a token at `/realms/master/protocol/openid-connect/token` with `client_id=admin-cli&grant_type=password&username=admin&password=admin`. Admin endpoints live under `/admin/realms/demo-realm/...`.
 - **`keycloak-js` must be ≥ 26.x.** Older versions validate a `nonce` claim that Keycloak 26 no longer emits.
+
+## 2FA gotchas
+
+- **Email OTP runs only on the browser flow.** The realm's `browserFlow` is `demo-browser`, which chains `auth-username-password-form` then `demo-email-otp`. Direct-grant (`grant_type=password`) uses the stock `direct grant` flow and **bypasses OTP** — convenient for `curl` tests, but means the role-matrix script below doesn't exercise the second factor.
+- **OTP code lives in `AuthenticationSessionModel` notes.** `EmailOtpAuthenticator` stores `email-otp-code` + `email-otp-expires`; no Postgres schema. If a code expires, `action()` re-enters `authenticate()` and mints a new one in place (user stays on the OTP form).
+- **Resend sandbox only delivers to the account owner.** `onboarding@resend.dev` → only the email address registered with the Resend account actually receives. Other addresses return `202 Accepted` from the API but aren't delivered. Mitigation: `EmailOtpAuthenticator.authenticate()` always logs `Email OTP for <email>: NNNNNN (valid 10min)` at INFO, so the demo is usable without inbox delivery (`podman compose logs keycloak | grep "Email OTP"`). Proper fix is to verify a domain at Resend and set `RESEND_FROM` to an address in that domain.
+- **Resend token lives in `.envrc` as `RESEND_API_TOKEN`** and is passed through compose into the keycloak container. `ResendClient` reads it via `System.getenv()`; no secret is baked into the image.
+- **10-minute validity is for the *code*, not the session.** Once authentication completes, the realm's existing `accessTokenLifespan` / `ssoSessionIdleTimeout` / `ssoSessionMaxLifespan` apply as before. No forced logout at 10 minutes.
+- **New `jakarta.ws.rs-api` compile-only dep.** `EmailOtpAuthenticator` imports `jakarta.ws.rs.core.Response` and `MultivaluedMap`; Keycloak's SPI jars don't transitively expose jakarta-ws-rs at compile time, so `build.gradle.kts` declares it. If you build a new authenticator that uses JAX-RS types, the build fails without this dep.
+- **Authenticator ID is `demo-email-otp`.** If you rename it in `EmailOtpAuthenticatorFactory.PROVIDER_ID`, update the `"demo-browser forms"` flow in `realm-export.json` to match, or the flow won't load on fresh import.
 
 ## Running this on macOS + Podman
 
@@ -59,6 +77,8 @@ Get the real path with `podman machine inspect --format '{{.ConnectionInfo.Podma
 | `keycloak-provider/` SPI source | `podman compose build keycloak && podman compose up -d --force-recreate keycloak` |
 | `keycloak/realm-export.json` | takes effect on fresh DB only; otherwise patch the live realm via admin API |
 | New realm role needed for a running demo | POST `/admin/realms/demo-realm/roles` with admin token; also add to `realm-export.json` for future fresh installs |
+| `EmailOtpAuthenticator` / `ResendClient` source | `podman compose build keycloak && podman compose up -d --force-recreate keycloak` — same as any SPI change |
+| Auth flow edit in `realm-export.json` | wipe postgres volume (`down -v`) OR patch live flow via admin API — see note above |
 
 ## Testing the role matrix quickly
 

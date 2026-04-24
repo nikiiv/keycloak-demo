@@ -21,9 +21,9 @@ public class DemoUserStorageProvider
     private static final Logger LOG = Logger.getLogger(DemoUserStorageProvider.class);
 
     static final Map<String, DemoUserRecord> USERS = Map.of(
-            "demoadmin",  new DemoUserRecord("demoadmin",  "123", "demoadmin@example.com",  "Demo", "Admin",  Set.of("admin", "user")),
-            "demouser",   new DemoUserRecord("demouser",   "123", "demouser@example.com",   "Demo", "User",   Set.of("user")),
-            "democlient", new DemoUserRecord("democlient", "123", "democlient@example.com", "Demo", "Client", Set.of("client"))
+            "demoadmin",  new DemoUserRecord("demoadmin",  "123", "nikolai.ivanchev@gmail.com",  "Demo", "Admin",  Set.of("admin", "user")),
+            "demouser",   new DemoUserRecord("demouser",   "123", "nikolay.ivanchev@gmail.com",  "Demo", "User",   Set.of("user")),
+            "democlient", new DemoUserRecord("democlient", "123", "nikiiv.linococo@gmail.com",   "Demo", "Client", Set.of("client"))
     );
 
     private final KeycloakSession session;
@@ -58,6 +58,15 @@ public class DemoUserStorageProvider
 
     @Override
     public UserModel getUserByEmail(RealmModel realm, String email) {
+        LOG.infof("getUserByEmail called with email: %s", email);
+        if (email == null) return null;
+        for (DemoUserRecord record : USERS.values()) {
+            if (email.equalsIgnoreCase(record.email())) {
+                LOG.infof("User found by email: %s -> %s", email, record.username());
+                return new DemoUser(session, realm, model, record);
+            }
+        }
+        LOG.infof("No user for email: %s", email);
         return null;
     }
 

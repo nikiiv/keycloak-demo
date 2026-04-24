@@ -60,6 +60,8 @@ services:
       KC_DB_PASSWORD: keycloak_secret
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
+      RESEND_API_TOKEN: "${RESEND_API_TOKEN}"
+      RESEND_FROM: "Demo Realm <onboarding@resend.dev>"
     volumes:
       - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json
       - keycloak_data:/opt/keycloak/data

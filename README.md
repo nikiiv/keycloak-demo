@@ -1,12 +1,12 @@
 # Keycloak SSO Demo
 
-One Vite+TypeScript SPA and one Micronaut BFF codebase, launched three times as **App A**, **App B**, and **App C**. Each is a separate OIDC client; together they demonstrate single sign-on *and* per-app authorization:
+One Vite+TypeScript SPA and one Micronaut BFF codebase, launched three times as **App A**, **App B**, and **App C**. Each is a separate OIDC client; together they demonstrate single sign-on, per-app authorization, **and email-based 2FA**:
 
 - **App A** — open to everyone (roles `client`, `user`, `admin`).
 - **App B** — closed to clients (roles `user`, `admin`).
 - **App C** — admins only (role `admin`).
 
-End-user identities come exclusively from a custom Keycloak User Storage SPI (`keycloak-provider/`); Keycloak's Postgres only holds realm metadata and sessions.
+Login is by **email + password + a 6-digit code emailed via Resend** (valid 10 minutes). End-user identities come exclusively from a custom Keycloak User Storage SPI (`keycloak-provider/`); Keycloak's Postgres only holds realm metadata and sessions.
 
 ## Architecture
 
@@ -72,17 +72,18 @@ Wait for all services to start (Keycloak takes ~30 seconds; each BFF's first bui
 export DOCKER_HOST="unix://$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}')"
 ```
 
-A `.envrc` with this line is included in the repo. If you use [direnv](https://direnv.net/), run `direnv allow` once and it will be set automatically whenever you `cd` into the project. Otherwise just `source .envrc` in each shell.
+Copy `.envrc.example` to `.envrc` (it's gitignored, because it also holds the Resend API token — see the 2FA section below). If you use [direnv](https://direnv.net/), run `direnv allow` once and it will be set automatically whenever you `cd` into the project. Otherwise `source .envrc` in each shell.
 
 ## Test SSO + AuthZ
 
 1. Open http://localhost:5173 (App A).
 2. Click "Login" — you'll be redirected to Keycloak.
-3. Log in with one of the SPI users below.
-4. Visit the **Profile** tab to see the username, email, name, and realm roles from the JWT.
-5. Visit the **Protected** tab to see the BFF's view of the same user (fetched via `/api/user`). The `source` field shows which BFF responded (`bff-a`), and the panel color reflects the role.
-6. Open http://localhost:5174 (App B) in a new tab — SSO logs you in automatically. As `demouser` / `demoadmin` you'll see the Protected page; as `democlient` a dark "not a client area" banner appears on every page and the BFF returns 403.
-7. Open http://localhost:5175 (App C). As `demoadmin` you get the Protected page (red panel). As `demouser` you get a red "requires admin" banner on every page. As `democlient` you get the "not a client area" banner (the forbidden-role check takes precedence over the required-role check).
+3. Enter one of the user emails from the table below and password `123`.
+4. Keycloak sends a 6-digit code to that email via Resend and shows an OTP form. Enter the code to complete login. (If delivery doesn't land — see the Resend caveat below — the code is also printed to the Keycloak log: `podman compose logs keycloak | grep "Email OTP"`.)
+5. Visit the **Profile** tab to see the username, email, name, and realm roles from the JWT.
+6. Visit the **Protected** tab to see the BFF's view of the same user (fetched via `/api/user`). The `source` field shows which BFF responded (`bff-a`), and the panel color reflects the role.
+7. Open http://localhost:5174 (App B) in a new tab — SSO logs you in automatically (**no second OTP**: the Keycloak session cookie satisfies the first-factor step, and the OTP authenticator only runs during an interactive login). As `demouser` / `demoadmin` you'll see the Protected page; as `democlient` a dark "not a client area" banner appears on every page and the BFF returns 403.
+8. Open http://localhost:5175 (App C). As `demoadmin` you get the Protected page (red panel). As `demouser` you get a red "requires admin" banner on every page. As `democlient` you get the "not a client area" banner (the forbidden-role check takes precedence over the required-role check).
 
 ## Visual states
 
@@ -123,33 +124,92 @@ Frontends proxy `/api/*` to their BFF via Vite's dev-server proxy, so browser ca
 
 ## Demo Users (from the custom SPI)
 
-Users are hardcoded in `keycloak-provider/src/main/java/com/example/keycloak/DemoUserStorageProvider.java`, **not** in Keycloak's Postgres tables.
+Users are hardcoded in `keycloak-provider/src/main/java/com/example/keycloak/DemoUserStorageProvider.java`, **not** in Keycloak's Postgres tables. The realm has `loginWithEmailAllowed: true`, so the login form accepts either the username or the email.
 
-| Username | Password | SPI-assigned roles |
-|----------|----------|--------------------|
-| `democlient` | `123` | `client` |
-| `demouser` | `123` | `user` |
-| `demoadmin` | `123` | `admin`, `user` |
+| Username | Email | Password | SPI-assigned roles |
+|----------|-------|----------|--------------------|
+| `democlient` | `nikiiv.linococo@gmail.com` | `123` | `client` |
+| `demouser` | `nikolay.ivanchev@gmail.com` | `123` | `user` |
+| `demoadmin` | `nikolai.ivanchev@gmail.com` | `123` | `admin`, `user` |
 
 Keycloak's built-in composite `default-roles-demo-realm` adds `offline_access` and `uma_authorization` on top of the SPI roles; it no longer includes `user`, so `democlient` really does get only `client`.
 
+## Email-based 2FA
+
+After username-or-email + password, the `demo-browser` flow runs a custom **Email OTP** authenticator (`keycloak-provider/src/main/java/com/example/keycloak/EmailOtpAuthenticator.java`) that:
+
+1. Generates a cryptographically random 6-digit code.
+2. Stores the code and an `expires` timestamp (10 minutes ahead) as auth-session notes.
+3. **Logs the code** at INFO (always — this is the fallback viewing mechanism when Resend sandbox delivery doesn't land).
+4. Sends an HTML email via the Resend HTTP API (`ResendClient.java`).
+5. Renders `email-otp.ftl` (packaged as a `theme-resources/templates/` entry in the provider jar) asking for the code.
+6. On submit: if the code matches and hasn't expired, the flow succeeds. If expired or empty, a new code is minted in-place and the form re-renders. If the code is wrong, the form redisplays with an "Invalid code" error.
+
+**Session vs. code validity.** The 10 minutes only apply to the OTP itself during login. Once the session exists, the realm's normal token/session lifespans apply (no forced 10-minute logout). If a user's session expires naturally and they log in again, they'll be challenged for a fresh OTP.
+
+### Resend configuration
+
+The Resend API token is read from `RESEND_API_TOKEN`. `.envrc` is gitignored; copy `.envrc.example` to `.envrc` and fill in your token:
+
+```bash
+export RESEND_API_TOKEN="re_..."
+```
+
+`docker-compose.yml` forwards this env var into the `keycloak` container. To rotate: update `.envrc`, then `podman compose up -d --force-recreate keycloak` — no image rebuild needed (the token is read from `System.getenv()` at request time, not baked in). If `RESEND_API_TOKEN` is unset, the authenticator logs a warning and the OTP only appears in the Keycloak logs (still usable for the demo; no email delivery).
+
+The from-address defaults to `"Demo Realm <onboarding@resend.dev>"` via `RESEND_FROM` in the compose file.
+
+### ⚠ Resend sandbox caveat
+
+`onboarding@resend.dev` only delivers to the email address registered with the Resend account. Resend returns `202 Accepted` for the other addresses but silently drops them. This means **at most one of the three demo users will actually receive emails** (whichever address owns the Resend account).
+
+Mitigation: every OTP is also written to the Keycloak INFO log (`Email OTP for <email>: NNNNNN (valid 10min)`), so the demo works regardless of inbox delivery:
+
+```bash
+podman compose logs keycloak | grep "Email OTP"
+```
+
+Permanent fix: verify a domain at Resend and set `RESEND_FROM` in `docker-compose.yml` to an address in that domain.
+
+### Authentication flow wiring
+
+`keycloak/realm-export.json` defines a custom top-level browser flow:
+
+```
+demo-browser  (top-level)
+├── Cookie                         ALTERNATIVE   ← skip-if-session-present
+├── Identity Provider Redirector   ALTERNATIVE
+└── demo-browser forms             ALTERNATIVE   (subflow)
+    ├── Username Password Form     REQUIRED       (first factor; uses email or username)
+    └── Demo Email OTP             REQUIRED       (second factor; providerId "demo-email-otp")
+```
+
+Realm-level `"browserFlow": "demo-browser"` makes this the flow for interactive logins. Direct-grant (`grant_type=password`) uses Keycloak's stock flow and **bypasses OTP** — handy for `curl` tests, but not a real login.
+
 ## The Keycloak User Storage Provider (`keycloak-provider/`)
 
-This module is a standalone Gradle project that implements Keycloak's **User Storage SPI** — a federation plugin that lets Keycloak pull users from an external source (here: a hardcoded `Map`, but in real deployments typically LDAP/AD, a legacy DB, or a bespoke HTTP service). The users never land in Keycloak's Postgres; the SPI is consulted live on every lookup / login.
+This module is a standalone Gradle project that implements Keycloak's **User Storage SPI** — a federation plugin that lets Keycloak pull users from an external source (here: a hardcoded `Map`, but in real deployments typically LDAP/AD, a legacy DB, or a bespoke HTTP service). The users never land in Keycloak's Postgres; the SPI is consulted live on every lookup / login. The same module also ships the **Email OTP Authenticator** (see the 2FA section above); both SPIs are packaged into a single jar.
 
 ### Files
 
 ```
 keycloak-provider/
-├── build.gradle.kts            # Gradle build; compileOnly deps on keycloak-core + SPI jars
+├── build.gradle.kts                              # compileOnly deps on keycloak SPI jars + jakarta.ws.rs-api
 ├── settings.gradle.kts
 └── src/main/
     ├── java/com/example/keycloak/
-    │   ├── DemoUserStorageProviderFactory.java   # factory — PROVIDER_ID "demo-user-provider"
-    │   ├── DemoUserStorageProvider.java          # the provider: implements UserLookupProvider + CredentialInputValidator
-    │   └── DemoUser.java                         # per-user adapter, extends AbstractUserAdapter
-    └── resources/META-INF/services/
-        └── org.keycloak.storage.UserStorageProviderFactory   # Java SPI registration (one line: factory FQCN)
+    │   ├── DemoUserStorageProviderFactory.java   # user-storage factory — PROVIDER_ID "demo-user-provider"
+    │   ├── DemoUserStorageProvider.java          # implements UserLookupProvider + CredentialInputValidator
+    │   ├── DemoUser.java                         # per-user adapter, extends AbstractUserAdapter
+    │   ├── EmailOtpAuthenticatorFactory.java     # OTP authenticator factory — PROVIDER_ID "demo-email-otp"
+    │   ├── EmailOtpAuthenticator.java            # generate code, send via Resend, validate
+    │   └── ResendClient.java                     # thin HTTP wrapper over api.resend.com
+    └── resources/
+        ├── META-INF/services/
+        │   ├── org.keycloak.storage.UserStorageProviderFactory   # registers the user-storage factory
+        │   └── org.keycloak.authentication.AuthenticatorFactory  # registers the OTP factory
+        └── theme-resources/templates/
+            └── email-otp.ftl                     # OTP entry page (inherits base login theme)
 ```
 
 ### How the three classes fit together
@@ -249,6 +309,8 @@ The same `frontend/` and `bff/` sources are launched three times — every app-s
 - **Isolated node_modules per container.** Each `web-*` service mounts `./frontend` as source but uses an anonymous volume for `/app/node_modules`, so the three `npm install` invocations don't race on the bind-mounted directory.
 - **Isolated Gradle caches per BFF.** Each `bff-*` service sets a distinct `GRADLE_USER_HOME` (in `/tmp/`) and passes `--project-cache-dir /tmp/gradle-proj-X`. This avoids lock contention on the shared `./bff/.gradle/` bind mount at the cost of one Gradle resolve per container on first start.
 - **Realm re-import semantics.** Keycloak's `--import-realm` uses `IGNORE_EXISTING` by default, so the realm JSON only seeds an empty DB. To pick up JSON edits on a running stack, either `podman compose down -v && up` (destroys all data) or apply the change to the running realm via the admin API.
+- **Two SPIs, one jar.** `keycloak-provider/` ships both the user-storage provider and the email-OTP authenticator. Two service files under `META-INF/services/` register them. The build picks up both automatically via `gradle jar`.
+- **2FA only runs in the browser flow.** The realm's `direct grant` flow is untouched, so `grant_type=password` against `/realms/demo-realm/protocol/openid-connect/token` returns a token without OTP — useful for scripting but not equivalent to an interactive login.
 
 ## Tear Down
 

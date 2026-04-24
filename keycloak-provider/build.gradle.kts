@@ -22,6 +22,7 @@ dependencies {
     compileOnly("org.keycloak:keycloak-server-spi:$keycloakVersion")
     compileOnly("org.keycloak:keycloak-server-spi-private:$keycloakVersion")
     compileOnly("org.keycloak:keycloak-model-storage:$keycloakVersion")
+    compileOnly("jakarta.ws.rs:jakarta.ws.rs-api:3.1.0")
 }
 
 tasks.jar {
