@@ -17,11 +17,9 @@ x-web-common: &web-common
       condition: service_healthy
 
 x-bff-common: &bff-common
-  image: gradle:8.5
-  working_dir: /app
-  command: sh -c "gradle run --no-daemon"
-  volumes:
-    - ./bff:/app
+  build:
+    context: ./bff
+  image: keycloak-demo-bff:latest
   networks:
     - keycloak-network
   depends_on:
@@ -117,19 +115,16 @@ services:
 
   bff-a:
     <<: *bff-common
-    command: sh -c "gradle --project-cache-dir /tmp/gradle-proj-a run --no-daemon"
     ports:
       - "8081:8080"
     environment:
       MICRONAUT_APPLICATION_NAME: bff-a
       APP_SOURCE: bff-a
       CORS_ORIGIN: http://localhost:5173
-      GRADLE_USER_HOME: /tmp/gradle-a
       KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
 
   bff-b:
     <<: *bff-common
-    command: sh -c "gradle --project-cache-dir /tmp/gradle-proj-b run --no-daemon"
     ports:
       - "8082:8080"
     environment:
@@ -137,12 +132,10 @@ services:
       APP_SOURCE: bff-b
       APP_FORBIDDEN_ROLE: client
       CORS_ORIGIN: http://localhost:5174
-      GRADLE_USER_HOME: /tmp/gradle-b
       KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
 
   bff-c:
     <<: *bff-common
-    command: sh -c "gradle --project-cache-dir /tmp/gradle-proj-c run --no-daemon"
     ports:
       - "8083:8080"
     environment:
@@ -151,7 +144,6 @@ services:
       APP_REQUIRED_ROLE: admin
       APP_FORBIDDEN_ROLE: client
       CORS_ORIGIN: http://localhost:5175
-      GRADLE_USER_HOME: /tmp/gradle-c
       KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
 
 volumes:

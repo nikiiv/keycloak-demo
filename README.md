@@ -59,10 +59,19 @@ Enforcement happens both in the frontend (banners) and the BFF (`/api/user` retu
 ## Quick Start
 
 ```bash
-podman compose up
+./start.sh
 ```
 
-Wait for all services to start (Keycloak takes ~30 seconds; each BFF's first build takes a minute or two to resolve Gradle dependencies). The custom Keycloak User SPI in `keycloak-provider/` is compiled during the image build — no pre-built jar required.
+`start.sh` is a thin wrapper that sources `.envrc`, takes any running stack down (volumes preserved), rebuilds both custom images (`keycloak-demo-keycloak` + `keycloak-demo-bff`), and brings everything back up. Equivalent to:
+
+```bash
+source .envrc                # DOCKER_HOST + RESEND_API_TOKEN
+podman compose down
+podman compose build
+podman compose up -d
+```
+
+Wait for all services to start (Keycloak takes ~30 seconds; the BFF image build takes ~1–2 minutes on first run, then layer-caches). The custom Keycloak SPI in `keycloak-provider/` is compiled during the Keycloak image build; the Micronaut BFF is compiled into a shadow jar during the BFF image build — no pre-built jars required.
 
 ### Running with Podman on macOS
 
@@ -298,7 +307,6 @@ The same `frontend/` and `bff/` sources are launched three times — every app-s
 | `APP_REQUIRED_ROLE` | `bff/src/main/java/demo/UserController.java` | If set, `/api/user` returns 403 with `reason: "missing_required_role"` when the token lacks this role (bff-c: `admin`) |
 | `APP_FORBIDDEN_ROLE` | `bff/src/main/java/demo/UserController.java` | If set, `/api/user` returns 403 with `reason: "forbidden_role"` when the token has this role (bff-b, bff-c: `client`); checked before the required-role check |
 | `CORS_ORIGIN` | `bff/src/main/resources/application.yml` | Single allowed origin (the paired frontend) |
-| `GRADLE_USER_HOME`, `--project-cache-dir` | `bff` commands | Each BFF gets its own Gradle cache dir so the three containers don't contend for `./bff/.gradle` locks |
 | `KEYCLOAK_AUTH_SERVER_URL` | BFF | Internal URL to Keycloak for JWKS lookup |
 
 ## Implementation notes
@@ -307,7 +315,7 @@ The same `frontend/` and `bff/` sources are launched three times — every app-s
 - **Role claim flattening.** Each client in `keycloak/realm-export.json` has an `oidc-usermodel-realm-role-mapper` protocol mapper that exposes realm roles as a top-level `roles` claim (in addition to `realm_access.roles`). The BFFs are configured with `micronaut.security.token.roles-name: roles` to read it.
 - **Client library version matters.** `keycloak-js` must be ≥ 26.x to work with Keycloak 26 — older versions (23.x) validate `nonce` on access/refresh tokens, which KC 26 no longer emits.
 - **Isolated node_modules per container.** Each `web-*` service mounts `./frontend` as source but uses an anonymous volume for `/app/node_modules`, so the three `npm install` invocations don't race on the bind-mounted directory.
-- **Isolated Gradle caches per BFF.** Each `bff-*` service sets a distinct `GRADLE_USER_HOME` (in `/tmp/`) and passes `--project-cache-dir /tmp/gradle-proj-X`. This avoids lock contention on the shared `./bff/.gradle/` bind mount at the cost of one Gradle resolve per container on first start.
+- **Compile once, run three times.** The BFF is built into a single fat-jar image (`bff/Dockerfile`, shadow plugin → `eclipse-temurin:17-jre`) tagged `keycloak-demo-bff:latest`. All three `bff-*` services share that image and differ only in port + env vars — no bind mount, no per-container Gradle cache, no compile on every `up`. Source edits need `podman compose up -d --build --force-recreate bff-a bff-b bff-c` (one command: rebuilds the image, then recreates all three containers onto the new image ID).
 - **Realm re-import semantics.** Keycloak's `--import-realm` uses `IGNORE_EXISTING` by default, so the realm JSON only seeds an empty DB. To pick up JSON edits on a running stack, either `podman compose down -v && up` (destroys all data) or apply the change to the running realm via the admin API.
 - **Two SPIs, one jar.** `keycloak-provider/` ships both the user-storage provider and the email-OTP authenticator. Two service files under `META-INF/services/` register them. The build picks up both automatically via `gradle jar`.
 - **2FA only runs in the browser flow.** The realm's `direct grant` flow is untouched, so `grant_type=password` against `/realms/demo-realm/protocol/openid-connect/token` returns a token without OTP — useful for scripting but not equivalent to an interactive login.
