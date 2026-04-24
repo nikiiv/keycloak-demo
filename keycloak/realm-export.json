@@ -67,6 +67,7 @@
       "directAccessGrantsEnabled": true,
       "serviceAccountsEnabled": false,
       "frontchannelLogout": false,
+      "attributes": { "login_theme": "app-a" },
       "protocolMappers": [
         {
           "name": "realm-roles-flat",
@@ -100,6 +101,7 @@
       "directAccessGrantsEnabled": true,
       "serviceAccountsEnabled": false,
       "frontchannelLogout": false,
+      "attributes": { "login_theme": "app-b" },
       "protocolMappers": [
         {
           "name": "realm-roles-flat",
@@ -133,6 +135,7 @@
       "directAccessGrantsEnabled": true,
       "serviceAccountsEnabled": false,
       "frontchannelLogout": false,
+      "attributes": { "login_theme": "app-c" },
       "protocolMappers": [
         {
           "name": "realm-roles-flat",

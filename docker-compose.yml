@@ -86,6 +86,7 @@ services:
       VITE_KEYCLOAK_CLIENT_ID: app1-client
       VITE_APP_NAME: "App A"
       VITE_APP_TITLE: "client space"
+      VITE_APP_THEME: "a"
       BFF_URL: http://bff-a:8080
 
   web-b:
@@ -97,6 +98,7 @@ services:
       VITE_KEYCLOAK_CLIENT_ID: app2-client
       VITE_APP_NAME: "App B"
       VITE_APP_TITLE: "client self service"
+      VITE_APP_THEME: "b"
       VITE_FORBIDDEN_ROLE: client
       BFF_URL: http://bff-b:8080
 
@@ -109,6 +111,7 @@ services:
       VITE_KEYCLOAK_CLIENT_ID: app3-client
       VITE_APP_NAME: "App C (admin)"
       VITE_APP_TITLE: "restricted admin area"
+      VITE_APP_THEME: "c"
       VITE_REQUIRED_ROLE: admin
       VITE_FORBIDDEN_ROLE: client
       BFF_URL: http://bff-c:8080

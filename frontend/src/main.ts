@@ -1,3 +1,4 @@
+import './styles.css';
 import './App';
 
 // Only react to real back/forward navigation. Do NOT rewrite the URL on

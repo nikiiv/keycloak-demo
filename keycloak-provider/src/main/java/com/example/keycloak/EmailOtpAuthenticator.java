@@ -45,7 +45,17 @@ public class EmailOtpAuthenticator implements Authenticator {
         auth.setAuthNote(OTP_NOTE, code);
         auth.setAuthNote(EXPIRES_NOTE, Long.toString(expires));
 
-        LOG.infof("Email OTP for %s: %s (valid 10min)", email, code);
+        // Log the code in a visually unmistakable banner so it can be spotted
+        // instantly in `podman compose logs keycloak | grep -A4 OTP` when
+        // Resend delivery is slow (or not delivering at all — sandbox caveat).
+        LOG.info(String.format(
+                "%n" +
+                "╔══════════════════════ EMAIL OTP ══════════════════════╗%n" +
+                "║  code  :  %-44s║%n" +
+                "║  email :  %-44s║%n" +
+                "║  valid :  10 minutes                                   ║%n" +
+                "╚════════════════════════════════════════════════════════╝",
+                code, email));
 
         try {
             ResendClient.send(email,

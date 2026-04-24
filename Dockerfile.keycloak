@@ -7,4 +7,5 @@ RUN gradle --no-daemon jar
 
 FROM quay.io/keycloak/keycloak:26.0.7
 COPY --from=provider-build /build/build/libs/keycloak-demo-provider-1.0.0.jar /opt/keycloak/providers/
+COPY keycloak/themes /opt/keycloak/themes
 RUN /opt/keycloak/bin/kc.sh build

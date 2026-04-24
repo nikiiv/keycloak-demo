@@ -1,0 +1,494 @@
+/* ============================================================
+   Design tokens — default palette is Theme A (Client Space).
+   Themes override these at [data-theme="b"] / [data-theme="c"].
+   ============================================================ */
+
+:root {
+  /* Colors */
+  --bg: #fbf9f4;
+  --bg-image: none;
+  --surface: #ffffff;
+  --surface-elev: #ffffff;
+  --fg: #1c1917;
+  --fg-muted: #78716c;
+  --accent: #0d9488;
+  --accent-hover: #0f766e;
+  --accent-fg: #ffffff;
+  --danger: #b91c1c;
+  --border: #e7e5e4;
+  --border-strong: #d6d3d1;
+  --shadow: 0 1px 3px rgba(28, 25, 23, 0.05), 0 6px 16px rgba(28, 25, 23, 0.04);
+  --shadow-lg: 0 4px 24px rgba(28, 25, 23, 0.08);
+
+  /* Typography */
+  --font-base: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-display: 'Instrument Serif', 'Iowan Old Style', Georgia, serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --letter-spacing: normal;
+  --heading-transform: none;
+  --heading-weight: 500;
+  --eyebrow-transform: uppercase;
+
+  /* Shape */
+  --radius: 14px;
+  --radius-sm: 8px;
+
+  /* Spacing */
+  --pad-page: 2rem;
+
+  /* Semantic panel colors (demo-critical: yellow=anon, blue=auth, red=admin) */
+  --panel-anon-bg: #fff8e1;
+  --panel-anon-border: #f59e0b;
+  --panel-anon-fg: #5d4a00;
+  --panel-auth-bg: #e8f4ff;
+  --panel-auth-border: #0066cc;
+  --panel-auth-fg: #003a75;
+  --panel-admin-bg: #ffe0e0;
+  --panel-admin-border: #cc0000;
+  --panel-admin-fg: #6b0000;
+
+  /* Unauth banners */
+  --banner-bg: #ffe0e0;
+  --banner-fg: #7a0000;
+  --banner-border: #cc0000;
+  --banner-forbidden-bg: #3a1414;
+  --banner-forbidden-fg: #ffd6d6;
+  --banner-forbidden-border: #000;
+}
+
+/* ---------- THEME B — Super Clients / Self-Service ---------- */
+[data-theme="b"] {
+  --bg: #f1f5f9;
+  --bg-image: radial-gradient(1200px 600px at 85% -10%, rgba(79, 70, 229, 0.09), transparent 60%),
+               radial-gradient(900px 500px at -10% 110%, rgba(124, 58, 237, 0.07), transparent 60%);
+  --surface: #ffffff;
+  --surface-elev: #ffffff;
+  --fg: #0f172a;
+  --fg-muted: #64748b;
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-fg: #ffffff;
+  --danger: #dc2626;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(79, 70, 229, 0.06);
+  --shadow-lg: 0 20px 48px rgba(79, 70, 229, 0.12);
+
+  --font-base: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Inter', ui-sans-serif, sans-serif;
+  --letter-spacing: -0.005em;
+  --heading-weight: 700;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+}
+
+/* ---------- THEME C — Restricted Admin ---------- */
+[data-theme="c"] {
+  --bg: #07070a;
+  --bg-image: repeating-linear-gradient(0deg, transparent 0 39px, rgba(255, 255, 255, 0.025) 39px 40px),
+               repeating-linear-gradient(90deg, transparent 0 39px, rgba(255, 255, 255, 0.025) 39px 40px);
+  --surface: #0f0f13;
+  --surface-elev: #18181b;
+  --fg: #fafafa;
+  --fg-muted: #a1a1aa;
+  --accent: #dc2626;
+  --accent-hover: #ef4444;
+  --accent-fg: #ffffff;
+  --danger: #f59e0b;
+  --border: #27272a;
+  --border-strong: #3f3f46;
+  --shadow: 0 0 0 1px rgba(255, 255, 255, 0.02), 0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 0 0 1px rgba(220, 38, 38, 0.25), 0 8px 32px rgba(220, 38, 38, 0.18);
+
+  --font-base: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-display: 'JetBrains Mono', ui-monospace, monospace;
+  --letter-spacing: 0.01em;
+  --heading-transform: uppercase;
+  --heading-weight: 600;
+
+  --radius: 2px;
+  --radius-sm: 2px;
+
+  /* Panels recalibrated for dark surfaces but the semantic meaning is preserved */
+  --panel-anon-bg: #2b2007;
+  --panel-anon-border: #f59e0b;
+  --panel-anon-fg: #fde68a;
+  --panel-auth-bg: #0c1e3a;
+  --panel-auth-border: #3b82f6;
+  --panel-auth-fg: #bfdbfe;
+  --panel-admin-bg: #2d0a0a;
+  --panel-admin-border: #dc2626;
+  --panel-admin-fg: #fecaca;
+
+  --banner-bg: #2d0a0a;
+  --banner-fg: #fecaca;
+  --banner-border: #dc2626;
+  --banner-forbidden-bg: #0a0a0a;
+  --banner-forbidden-fg: #fca5a5;
+  --banner-forbidden-border: #7f1d1d;
+}
+
+/* ============================================================
+   Base layout
+   ============================================================ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+}
+
+body {
+  background: var(--bg);
+  background-image: var(--bg-image);
+  background-attachment: fixed;
+  color: var(--fg);
+  font-family: var(--font-base);
+  letter-spacing: var(--letter-spacing);
+  font-size: 15px;
+  line-height: 1.55;
+  padding: 1.75rem clamp(1rem, 4vw, 3rem);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================================
+   Headings
+   ============================================================ */
+
+h1, h2, h3 {
+  font-family: var(--font-display);
+  text-transform: var(--heading-transform);
+  letter-spacing: var(--letter-spacing);
+  font-weight: var(--heading-weight);
+  margin-top: 0;
+}
+
+[data-theme="a"] h1 { font-size: 2rem; letter-spacing: -0.02em; }
+[data-theme="b"] h1 { font-size: 1.65rem; letter-spacing: -0.01em; }
+[data-theme="c"] h1 { font-size: 1.25rem; color: var(--accent); letter-spacing: 0.04em; }
+
+em { color: var(--fg-muted); font-style: italic; }
+
+code {
+  font-family: var(--font-mono);
+  background: var(--border);
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  font-size: 0.88em;
+  color: var(--fg);
+}
+
+/* ============================================================
+   Nav bar
+   ============================================================ */
+
+nav {
+  background: var(--surface);
+  padding: 0.9rem 1.25rem;
+  border-radius: var(--radius);
+  margin-bottom: 1.25rem;
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+}
+
+[data-theme="c"] nav {
+  border-top: 2px solid var(--accent);
+  border-radius: 0;
+}
+
+nav a {
+  text-decoration: none;
+  color: var(--fg);
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  font-size: 0.92rem;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+[data-theme="c"] nav a {
+  text-transform: uppercase;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+}
+
+nav a:hover {
+  background: var(--border);
+  color: var(--accent);
+}
+
+.nav-brand {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  color: var(--fg);
+}
+
+.nav-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.nav-brand-mark svg {
+  width: 100%;
+  height: 100%;
+}
+
+.nav-brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.05;
+  font-weight: 600;
+}
+
+.nav-brand-sub {
+  font-size: 0.66rem;
+  color: var(--fg-muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin-top: 2px;
+}
+
+/* ============================================================
+   Page card
+   ============================================================ */
+
+.page {
+  background: var(--surface);
+  padding: clamp(1.5rem, 3vw, 2.25rem);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+}
+
+[data-theme="b"] .page {
+  box-shadow: var(--shadow-lg);
+}
+
+[data-theme="c"] .page {
+  background: var(--surface-elev);
+  border-radius: 0;
+}
+
+/* ============================================================
+   Hero on Home
+   ============================================================ */
+
+.hero {
+  margin-bottom: 1.5rem;
+}
+
+.hero-eyebrow {
+  text-transform: var(--eyebrow-transform);
+  letter-spacing: 0.14em;
+  font-size: 0.72rem;
+  color: var(--accent);
+  font-weight: 600;
+  margin-bottom: 0.6rem;
+}
+
+.hero-title {
+  font-family: var(--font-display);
+  margin: 0 0 0.6rem 0;
+}
+
+[data-theme="a"] .hero-title {
+  font-size: 2.6rem;
+  font-weight: 400;
+  letter-spacing: -0.025em;
+  line-height: 1.08;
+}
+
+[data-theme="b"] .hero-title {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+[data-theme="c"] .hero-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.hero-body {
+  color: var(--fg-muted);
+  max-width: 58ch;
+  line-height: 1.6;
+  margin: 0 0 1.25rem 0;
+}
+
+/* ============================================================
+   Buttons
+   ============================================================ */
+
+button {
+  padding: 0.62rem 1.25rem;
+  cursor: pointer;
+  background: var(--accent);
+  color: var(--accent-fg);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-base);
+  font-size: 0.92rem;
+  font-weight: 500;
+  letter-spacing: var(--letter-spacing);
+  transition: background 120ms ease, transform 80ms ease, box-shadow 120ms ease;
+}
+
+button:hover { background: var(--accent-hover); }
+button:active { transform: translateY(1px); }
+
+[data-theme="c"] button {
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  font-size: 0.8rem;
+  padding: 0.6rem 1.1rem;
+}
+
+[data-theme="c"] button:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 14px rgba(220, 38, 38, 0.45);
+}
+
+button.logout {
+  background: transparent;
+  color: var(--fg-muted);
+  border: 1px solid var(--border-strong);
+}
+
+button.logout:hover {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
+
+/* ============================================================
+   Protected panel (semantic colors — preserved across themes)
+   ============================================================ */
+
+.protected {
+  padding: 1.75rem;
+  border-radius: var(--radius);
+  border: 2px solid;
+}
+
+.protected.anon {
+  background: var(--panel-anon-bg);
+  border-color: var(--panel-anon-border);
+  color: var(--panel-anon-fg);
+}
+.protected.auth {
+  background: var(--panel-auth-bg);
+  border-color: var(--panel-auth-border);
+  color: var(--panel-auth-fg);
+}
+.protected.admin {
+  background: var(--panel-admin-bg);
+  border-color: var(--panel-admin-border);
+  color: var(--panel-admin-fg);
+}
+
+.protected .status-line {
+  font-size: 1rem;
+  margin: 0.25rem 0 1rem;
+}
+
+.protected h1 {
+  color: inherit;
+}
+
+/* ============================================================
+   User info block
+   ============================================================ */
+
+.user-info {
+  background: var(--panel-auth-bg);
+  color: var(--panel-auth-fg);
+  padding: 1rem 1.25rem;
+  border-radius: var(--radius-sm);
+  margin-top: 1rem;
+}
+
+.user-info p { margin: 0.4rem 0; }
+
+.user-info pre {
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  margin: 0.5rem 0 0;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-sm);
+}
+
+[data-theme="c"] .user-info {
+  background: rgba(59, 130, 246, 0.08);
+  color: var(--panel-auth-fg);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+[data-theme="c"] .user-info pre {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+/* ============================================================
+   Banners
+   ============================================================ */
+
+.unauth-banner {
+  background: var(--banner-bg);
+  border: 2px solid var(--banner-border);
+  color: var(--banner-fg);
+  padding: 1rem 1.25rem;
+  border-radius: var(--radius);
+  margin-bottom: 1rem;
+  box-shadow: var(--shadow);
+}
+
+.unauth-banner strong { letter-spacing: 0.01em; }
+
+.unauth-banner code {
+  background: rgba(204, 0, 0, 0.15);
+  color: inherit;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+}
+
+.unauth-banner.forbidden-role {
+  background: var(--banner-forbidden-bg);
+  border-color: var(--banner-forbidden-border);
+  color: var(--banner-forbidden-fg);
+}
+
+.unauth-banner.forbidden-role code {
+  background: rgba(255, 214, 214, 0.15);
+  color: inherit;
+}
+
+.error { color: var(--danger); }
+
+/* ============================================================
+   Profile section — small card polish per theme
+   ============================================================ */
+
+.page h1 + .user-info {
+  margin-top: 1.25rem;
+}
