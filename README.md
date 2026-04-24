@@ -155,7 +155,16 @@ After username-or-email + password, the `demo-browser` flow runs a custom **Emai
 5. Renders `email-otp.ftl` (packaged as a `theme-resources/templates/` entry in the provider jar) asking for the code.
 6. On submit: if the code matches and hasn't expired, the flow succeeds. If expired or empty, a new code is minted in-place and the form re-renders. If the code is wrong, the form redisplays with an "Invalid code" error.
 
-**Session vs. code validity.** The 10 minutes only apply to the OTP itself during login. Once the session exists, the realm's normal token/session lifespans apply (no forced 10-minute logout). If a user's session expires naturally and they log in again, they'll be challenged for a fresh OTP.
+**Session vs. code validity.** The 10 minutes only apply to the OTP itself during login. Once the session exists, the realm's normal token/session lifespans apply (no forced 10-minute logout).
+
+**Persisting the OTP decision — the trust cookie.** Re-prompting for an email code on every fresh login is annoying in practice. After a successful OTP verification, the authenticator drops a signed cookie (`KC_DEMO_OTP_TRUSTED`, HttpOnly, realm-scoped, SameSite=Lax) carrying the user id, an expiry timestamp, and an HMAC-SHA256 over both. On the next login, if the cookie is present, unexpired, and matches the current user, the email-OTP step is skipped via `context.success()` — no code is generated and no email is sent. The window is configurable:
+
+```yaml
+# docker-compose.yml → keycloak.environment
+OTP_TRUST_WINDOW_MINUTES: "60"   # default; set to 0 to always require OTP
+```
+
+The HMAC key is generated once per Keycloak process (in-memory only), so restarting Keycloak invalidates every outstanding trust cookie. That's fine for a demo; a real deployment would source the key from a stable secret store. Log lines to watch for: `Issued OTP trust cookie for <user>, valid N minute(s)` (after a successful submit) and `OTP trust cookie valid for <user>; skipping email step` (on subsequent logins).
 
 ### Resend configuration
 

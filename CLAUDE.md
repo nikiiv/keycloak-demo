@@ -53,6 +53,7 @@ Per-app role model. The BFF is the source of truth: each bff reads `APP_ALLOWED_
 - **10-minute validity is for the *code*, not the session.** Once authentication completes, the realm's existing `accessTokenLifespan` / `ssoSessionIdleTimeout` / `ssoSessionMaxLifespan` apply as before. No forced logout at 10 minutes.
 - **New `jakarta.ws.rs-api` compile-only dep.** `EmailOtpAuthenticator` imports `jakarta.ws.rs.core.Response` and `MultivaluedMap`; Keycloak's SPI jars don't transitively expose jakarta-ws-rs at compile time, so `build.gradle.kts` declares it. If you build a new authenticator that uses JAX-RS types, the build fails without this dep.
 - **Authenticator ID is `demo-email-otp`.** If you rename it in `EmailOtpAuthenticatorFactory.PROVIDER_ID`, update the `"demo-browser forms"` flow in `realm-export.json` to match, or the flow won't load on fresh import.
+- **OTP trust cookie skips the email step.** After a successful OTP, `EmailOtpAuthenticator.issueTrustCookie()` sets `KC_DEMO_OTP_TRUSTED` (HttpOnly, realm-scoped, SameSite=Lax). The cookie carries `userId.expiresAt.hmac` (HMAC-SHA256 with a process-local key). On the next `authenticate()`, a matching unexpired cookie short-circuits the flow via `context.success()` — no code generated, no email sent. Window is `OTP_TRUST_WINDOW_MINUTES` (default 60; `0` disables the feature and always requires OTP). The HMAC key is regenerated on Keycloak restart, which invalidates every outstanding trust cookie — fine for a demo, not fine for production.
 
 ## Running this on macOS + Podman
 
