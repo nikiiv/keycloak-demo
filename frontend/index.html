@@ -1,32 +1,13 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="%VITE_APP_THEME%">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>%VITE_APP_TITLE%</title>
-    <style>
-      body { font-family: system-ui, sans-serif; margin: 2rem; background: #f5f5f5; }
-      nav { background: #fff; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center; }
-      nav a { text-decoration: none; color: #333; padding: 0.5rem 1rem; border-radius: 4px; }
-      nav a:hover { background: #eee; }
-      nav span { margin-left: auto; font-weight: bold; }
-      .page { background: #fff; padding: 2rem; border-radius: 8px; }
-      button { padding: 0.5rem 1rem; cursor: pointer; background: #0066cc; color: white; border: none; border-radius: 4px; }
-      button:hover { background: #0052a3; }
-      .logout { background: #cc3300; }
-      .logout:hover { background: #a32900; }
-      .user-info { background: #e8f4ff; padding: 1rem; border-radius: 4px; margin-top: 1rem; }
-      .protected { padding: 2rem; border-radius: 8px; border: 2px solid; }
-      .protected.anon { background: #fff3cd; border-color: #ffc107; }
-      .protected.auth { background: #e8f4ff; border-color: #0066cc; }
-      .protected.admin { background: #ffe0e0; border-color: #cc0000; }
-      .protected .status-line { font-size: 1.05rem; margin: 0.25rem 0 1rem; }
-      .unauth-banner { background: #ffe0e0; border: 2px solid #cc0000; color: #7a0000; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
-      .unauth-banner code { background: rgba(204, 0, 0, 0.12); padding: 0.1rem 0.3rem; border-radius: 3px; }
-      .unauth-banner.forbidden-role { background: #3a1414; border-color: #000; color: #ffd6d6; }
-      .unauth-banner.forbidden-role code { background: rgba(255, 214, 214, 0.15); color: #fff; }
-      .error { color: #cc3300; }
-    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif&family=JetBrains+Mono:wght@400;500;600&display=swap" />
   </head>
   <body>
     <div id="app"></div>
