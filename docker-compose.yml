@@ -173,8 +173,7 @@ services:
     environment:
       MICRONAUT_APPLICATION_NAME: bff-c
       APP_SOURCE: bff-c
-      APP_REQUIRED_ROLE: admin
-      APP_FORBIDDEN_ROLE: client
+      APP_ALLOWED_ROLES: "admin"
       CORS_ORIGIN: http://localhost:5175
       KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
 
