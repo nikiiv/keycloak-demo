@@ -31,9 +31,9 @@ public class UserController extends AbstractUsersController {
     }
 
     private static final Map<String, DemoUserRecord> USERS = Map.of(
-            "demoadmin",  new DemoUserRecord("demoadmin",  "123", "demoadmin@example.com",  "Demo", "Admin",  List.of("admin", "user")),
-            "demouser",   new DemoUserRecord("demouser",   "123", "demouser@example.com",   "Demo", "User",   List.of("user")),
-            "democlient", new DemoUserRecord("democlient", "123", "democlient@example.com", "Demo", "Client", List.of("client"))
+            "demoadmin",  new DemoUserRecord("demoadmin",  "123", "nikolai.ivanchev@gmail.com", "Demo", "Admin",  List.of("admin", "user")),
+            "demouser",   new DemoUserRecord("demouser",   "123", "nikolay.ivanchev@gmail.com", "Demo", "User",   List.of("user")),
+            "democlient", new DemoUserRecord("democlient", "123", "nikiiv.linococo@gmail.com",  "Demo", "Client", List.of("client"))
     );
 
     @Override
