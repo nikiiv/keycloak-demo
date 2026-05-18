@@ -54,31 +54,25 @@ openApiGenerate {
     ignoreFileOverride.set("$rootDir/openapi-generator-ignore")
     apiPackage.set("demo.userservice.api")
     modelPackage.set("demo.userservice.model")
-    configOptions.set([
-            useJakartaEe              : "true",
-            useAuth                   : "false",
-            reactive                  : "false",
-            generateSwaggerAnnotations: "false",
-            generateControllerAsAbstract: "true",
-            serializationLibrary      : "micronaut_serde_jackson"
-    ])
+    configOptions.set(mapOf(
+            "useJakartaEe" to "true",
+            "useAuth" to "false",
+            "reactive" to "false",
+            "generateSwaggerAnnotations" to "false",
+            "generateControllerAsAbstract" to "true",
+            "serializationLibrary" to "micronaut_serde_jackson"
+    ))
     // Generate only the API + model code from the contract; the app
     // bootstrap (Application.java) is hand-written and must not be
     // overwritten by a generated supporting file.
-    globalProperties.set([
-            apis           : "",
-            models         : "",
-            supportingFiles: "false"
-    ])
+    globalProperties.set(mapOf(
+            "apis" to "",
+            "models" to "",
+            "supportingFiles" to "false"
+    ))
 }
 
-sourceSets {
-    main {
-        java {
-            srcDir("$buildDir/generated/openapi/src/main/java")
-        }
-    }
-}
+sourceSets["main"].java.srcDir("$buildDir/generated/openapi/src/main/java")
 
 tasks.named("compileJava") {
     dependsOn("openApiGenerate")

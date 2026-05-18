@@ -1,7 +1,7 @@
 FROM gradle:8.5-jdk17 AS builder
 WORKDIR /app
 
-COPY settings.gradle build.gradle gradle.properties ./
+COPY settings.gradle build.gradle.kts gradle.properties ./
 RUN gradle --no-daemon dependencies > /dev/null 2>&1 || true
 
 COPY src ./src

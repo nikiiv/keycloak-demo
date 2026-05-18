@@ -17,3 +17,8 @@ bin/
 
 # Local env (contains secrets). Copy .envrc.example to get started.
 .envrc
+
+
+#AI
+.claude
+

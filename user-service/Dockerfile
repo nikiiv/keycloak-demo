@@ -4,7 +4,7 @@
 FROM gradle:8.5-jdk17 AS builder
 WORKDIR /app/user-service
 
-COPY user-service/settings.gradle user-service/build.gradle user-service/gradle.properties user-service/openapi-generator-ignore ./
+COPY user-service/settings.gradle user-service/build.gradle.kts user-service/gradle.properties user-service/openapi-generator-ignore ./
 COPY user-api /app/user-api
 RUN gradle --no-daemon dependencies > /dev/null 2>&1 || true
 
