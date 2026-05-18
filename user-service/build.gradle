@@ -2,6 +2,9 @@ plugins {
     id("io.micronaut.application") version "4.4.2"
     id("application")
     id("org.openapi.generator") version "7.7.0"
+    // Micronaut 4.4's application plugin doesn't register shadowJar itself;
+    // add it so the Dockerfile can copy a single build/libs/*-all.jar.
+    id("com.gradleup.shadow") version "8.3.5"
 }
 
 version = "0.1"
