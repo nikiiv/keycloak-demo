@@ -6,22 +6,28 @@ One Vite+TypeScript SPA and one Micronaut BFF codebase, launched three times as 
 - **App B** — closed to clients (roles `user`, `admin`).
 - **App C** — admins only (role `admin`).
 
-Login is by **email + password + a 6-digit code emailed via Resend** (valid 10 minutes). End-user identities come exclusively from a custom Keycloak User Storage SPI (`keycloak-provider/`); Keycloak's Postgres only holds realm metadata and sessions.
+Login is by **email + password + a 6-digit code emailed via Resend** (valid 10 minutes). End-user identities live in a **standalone Micronaut REST service** (`user-service/`); the Keycloak User Storage SPI (`keycloak-provider/`) is a thin client of it. The REST contract is defined **OpenAPI-first** in `user-api/openapi.yaml` and the client/server code on both sides is generated from that one file. Keycloak's Postgres only holds realm metadata and sessions.
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────┐     ┌───────────────────┐
-│  frontend/  (one codebase)               │     │     Keycloak      │
-│    └── run as web-a  (:5173) — open      │     │  + custom User SPI│
-│    └── run as web-b  (:5174) — no clients│     │  (democlient,     │
-│    └── run as web-c  (:5175) — admin only│     │   demouser,       │
-│                                          │     │   demoadmin)      │
-│  bff/  (one codebase)                    │     └──────┬────────────┘
-│    └── run as bff-a  (:8081)             │            │
-│    └── run as bff-b  (:8082)             │            │
-│    └── run as bff-c  (:8083)             │            │
-└───────────────┬──────────────────────────┘            │
+┌──────────────────────────────────────────┐     ┌────────────────────────┐
+│  frontend/  (one codebase)               │     │       Keycloak         │
+│    └── run as web-a  (:5173) — open      │     │  ┌──────────────────┐  │
+│    └── run as web-b  (:5174) — no clients│     │  │ User Storage SPI │  │
+│    └── run as web-c  (:5175) — admin only│     │  │  + Email-OTP SPI │  │
+│                                          │     │  └────────┬─────────┘  │
+│  bff/  (one codebase)                    │     └──────┬────┼────────────┘
+│    └── run as bff-a  (:8081)             │            │    │ REST
+│    └── run as bff-b  (:8082)             │            │    │ (generated from
+│    └── run as bff-c  (:8083)             │            │    │  user-api/openapi.yaml)
+└───────────────┬──────────────────────────┘            │    ▼
+                │                                       │  ┌──────────────────────┐
+                │                                       │  │  user-service        │
+                │                                       │  │  (Micronaut, :8090)  │
+                │                                       │  │  hardcoded users +   │
+                │                                       │  │  password verify     │
+                │                                       │  └──────────────────────┘
                 │                                       ▼
                 │                                 ┌─────────────┐
                 └──────── (JWT via OIDC) ───────▶ │ PostgreSQL  │
@@ -30,6 +36,8 @@ Login is by **email + password + a 6-digit code emailed via Resend** (valid 10 m
                                                   │  metadata)  │
                                                   └─────────────┘
 ```
+
+The User Storage SPI runs in Keycloak's JVM but holds no user data — it calls `user-service` over HTTP for every lookup and credential check. The Email-OTP authenticator also stays in the JVM; when it needs a user's email it goes through the same SPI → REST path. The contract in `user-api/openapi.yaml` is the single source of truth: the SPI's HTTP client and the `user-service` server stubs are both code-generated from it.
 
 Each compose service passes its own `VITE_KEYCLOAK_CLIENT_ID` (`app1-client` / `app2-client` / `app3-client`) and `APP_SOURCE` (`bff-a` / `bff-b` / `bff-c`) so the same source tree behaves as three independent OIDC clients. App-level role gating is configured on the BFF only, via a single `APP_ALLOWED_ROLES` env var (comma-separated). App B uses `APP_ALLOWED_ROLES=user,admin`; App C uses `APP_ALLOWED_ROLES=admin`; App A has no gate. The frontend learns the rule from the BFF's `/api/user` response, so there is no matching `VITE_*` role var — the BFF is the single source of truth.
 
@@ -48,6 +56,7 @@ Enforcement happens in the BFF (`/api/user` returns a structured 403 with `reaso
 | Service | Host port | Role |
 |---------|-----------|------|
 | PostgreSQL | 5432 | Keycloak internal metadata (realm config, sessions) — **not** end users |
+| user-service | 8090 | Standalone Micronaut store of the demo users; the Keycloak SPI's REST backend (container port 8080) |
 | Keycloak | 8888 | Auth server with demo-realm (container port 8080) |
 | web-a | 5173 | Vite dev server, OIDC client `app1-client`, no role gate |
 | web-b | 5174 | Vite dev server, OIDC client `app2-client`, blocks `client` role |
@@ -62,7 +71,7 @@ Enforcement happens in the BFF (`/api/user` returns a structured 403 with `reaso
 ./start.sh
 ```
 
-`start.sh` is a thin wrapper that sources `.envrc`, takes any running stack down (volumes preserved), rebuilds both custom images (`keycloak-demo-keycloak` + `keycloak-demo-bff`), and brings everything back up. Equivalent to:
+`start.sh` is a thin wrapper that sources `.envrc`, takes any running stack down (volumes preserved), rebuilds the custom images (`keycloak-demo-keycloak` + `keycloak-demo-bff` + `keycloak-demo-user-service`), and brings everything back up. Equivalent to:
 
 ```bash
 source .envrc                # DOCKER_HOST + RESEND_API_TOKEN
@@ -71,7 +80,7 @@ podman compose build
 podman compose up -d
 ```
 
-Wait for all services to start (Keycloak takes ~30 seconds; the BFF image build takes ~1–2 minutes on first run, then layer-caches). The custom Keycloak SPI in `keycloak-provider/` is compiled during the Keycloak image build; the Micronaut BFF is compiled into a shadow jar during the BFF image build — no pre-built jars required.
+Wait for all services to start (Keycloak takes ~30 seconds; image builds take ~1–2 minutes on first run, then layer-cache). All three custom images compile from source at build time — no pre-built jars required: the Keycloak SPI (`keycloak-provider/`, including its generated REST client) during the Keycloak image build, the Micronaut BFF into a shadow jar during the BFF image build, and `user-service` (including its generated server stubs) into a fat jar during the user-service image build. The two generated halves both come from `user-api/openapi.yaml`.
 
 ### Running with Podman on macOS
 
@@ -128,13 +137,21 @@ Frontends proxy `/api/*` to their BFF via Vite's dev-server proxy, so browser ca
 
 Both 200 and 403 bodies include `allowedRoles` so the frontend can render the rule without duplicating it.
 
+### user-service (host-exposed for inspection; Keycloak reaches it in-network as `http://user-service:8080`)
+- `GET  http://localhost:8090/users/{username}` → `200` user JSON (no password field) or `404`
+- `GET  http://localhost:8090/users?email={email}` → `200` user JSON or `404`
+- `POST http://localhost:8090/users/verify-credentials` `{"username","password"}` → `200 {"valid":true|false}` (always 200; transport failure is the caller's concern)
+- `GET  http://localhost:8090/health` → `200 {"status":"UP"}`
+
+These are exactly the operations declared in `user-api/openapi.yaml`. Password only ever travels in the `verify-credentials` request body and never appears in a response.
+
 ### Keycloak Admin
 - URL: http://localhost:8888
 - Credentials: `admin` / `admin`
 
-## Demo Users (from the custom SPI)
+## Demo Users (served by user-service)
 
-Users are hardcoded in `keycloak-provider/src/main/java/com/example/keycloak/DemoUserStorageProvider.java`, **not** in Keycloak's Postgres tables. The realm has `loginWithEmailAllowed: true`, so the login form accepts either the username or the email.
+Users are hardcoded in `user-service/src/main/java/demo/userservice/UserController.java`, **not** in Keycloak's Postgres tables and **no longer** in the Keycloak provider — the SPI fetches them from `user-service` over REST. The realm has `loginWithEmailAllowed: true`, so the login form accepts either the username or the email.
 
 | Username | Email | Password | SPI-assigned roles |
 |----------|-------|----------|--------------------|
@@ -205,24 +222,61 @@ demo-browser  (top-level)
 
 Realm-level `"browserFlow": "demo-browser"` makes this the flow for interactive logins. Direct-grant (`grant_type=password`) uses Keycloak's stock flow and **bypasses OTP** — handy for `curl` tests, but not a real login.
 
+## Contract-first user-service
+
+The user store is a standalone Micronaut service (`user-service/`) and the REST contract between it and Keycloak is **defined before any code**, in one file: `user-api/openapi.yaml`. Nothing about that wire format is written by hand on either side — both halves are generated from the spec at build time.
+
+### The contract (`user-api/openapi.yaml`)
+
+Three operations, tagged `Users`, with explicit `operationId`s so the generated method names are stable on both sides:
+
+| Operation | `operationId` | Result |
+|---|---|---|
+| `GET /users/{username}` | `getUserByUsername` | `200` `User` / `404` (also serves the SPI's `getUserById`, since external id == username here) |
+| `GET /users?email=…` | `getUserByEmail` | `200` `User` / `404` |
+| `POST /users/verify-credentials` | `verifyCredentials` | **always `200`** `{ "valid": bool }` |
+
+`User` is `{ username, email, firstName, lastName, roles[] }` — **no password**. The password only ever appears in the `verify-credentials` request body. `verify-credentials` returns `200` even for a wrong password so the caller can tell "reachable, wrong password" (`valid:false`) apart from a transport failure (which `UserServiceClient` treats as fail-closed).
+
+### Code generation (one spec, two generators)
+
+| Side | Module | openapi-generator | Output |
+|---|---|---|---|
+| Server | `user-service/` | `java-micronaut-server` (`reactive=false`, `useAuth=false`, abstract controller) | `AbstractUsersController` + models. `UserController` extends the abstract class and supplies the logic + the hardcoded `USERS` map. |
+| Client | `keycloak-provider/` | `java`, `library=native` (JDK `java.net.http`) | `UsersApi` + `ApiClient` + models. `UserServiceClient` wraps it. |
+
+Both `openApiGenerate` tasks read `$rootDir/../user-api/openapi.yaml` and run before `compileJava`; the generated sources land under each module's `build/` (git-ignored, regenerated every build). `user-service/openapi-generator-ignore` drops the generator's sample controller stub so only our `UserController` is compiled. The `native` client library was chosen deliberately: the SPI runs inside Keycloak's JVM with no Micronaut context, so it needs a plain-Java HTTP client (`java.net.http`, JDK-only) — not a Micronaut/Netty one.
+
+### Packaging & runtime
+
+`user-service` is built once into a fat-jar image (`user-service/Dockerfile`, `com.gradleup.shadow` → `eclipse-temurin:17-jre`) tagged `keycloak-demo-user-service:latest`, the same approach as `bff/`. Its build context is the **repo root** so the build can read the shared `user-api/openapi.yaml`. In the compose network Keycloak reaches it as `http://user-service:8080`; host port `8090` is exposed only for inspection. The `keycloak` service `depends_on` it being `service_healthy`, and the health check matches Micronaut's `200 Ok` status line (note: not `200 OK`).
+
+**Failure modes are explicit.** `user-service` down → lookups return `null` (login fails cleanly) and `verify-credentials` is treated as `false` (fail closed — never authenticate when the store is unreachable). This is verified end-to-end: stopping `user-service` makes a `demouser` token request return `invalid_grant` rather than a token.
+
 ## The Keycloak User Storage Provider (`keycloak-provider/`)
 
-This module is a standalone Gradle project that implements Keycloak's **User Storage SPI** — a federation plugin that lets Keycloak pull users from an external source (here: a hardcoded `Map`, but in real deployments typically LDAP/AD, a legacy DB, or a bespoke HTTP service). The users never land in Keycloak's Postgres; the SPI is consulted live on every lookup / login. The same module also ships the **Email OTP Authenticator** (see the 2FA section above); both SPIs are packaged into a single jar.
+This module is a standalone Gradle project that implements Keycloak's **User Storage SPI** — a federation plugin that lets Keycloak pull users from an external source. Here that source is a **bespoke HTTP service** (`user-service/`): the provider holds no user data and makes a REST call for every lookup / credential check. The users never land in Keycloak's Postgres; the SPI is consulted live on every lookup / login. The same module also ships the **Email OTP Authenticator** (see the 2FA section above); both SPIs are packaged into a single jar.
+
+> The HTTP client the provider uses is **not hand-written** — it is generated from `user-api/openapi.yaml` (see [Contract-first user-service](#contract-first-user-service)). The provider code only wraps it.
 
 ### Files
 
 ```
 keycloak-provider/
-├── build.gradle.kts                              # compileOnly deps on keycloak SPI jars + jakarta.ws.rs-api
+├── build.gradle.kts                              # keycloak SPI + jakarta.ws.rs compileOnly; openapi-generator
+│                                                 #   (java/native client) + shadow (relocates Jackson)
 ├── settings.gradle.kts
 └── src/main/
     ├── java/com/example/keycloak/
-    │   ├── DemoUserStorageProviderFactory.java   # user-storage factory — PROVIDER_ID "demo-user-provider"
-    │   ├── DemoUserStorageProvider.java          # implements UserLookupProvider + CredentialInputValidator
+    │   ├── DemoUserStorageProviderFactory.java   # user-storage factory — resolves USER_SERVICE_URL, builds client
+    │   ├── DemoUserStorageProvider.java          # UserLookupProvider + CredentialInputValidator — delegates to REST
+    │   ├── UserServiceClient.java                # wraps the generated client: 404→null, fail-closed verify
     │   ├── DemoUser.java                         # per-user adapter, extends AbstractUserAdapter
     │   ├── EmailOtpAuthenticatorFactory.java     # OTP authenticator factory — PROVIDER_ID "demo-email-otp"
     │   ├── EmailOtpAuthenticator.java            # generate code, send via Resend, validate
     │   └── ResendClient.java                     # thin HTTP wrapper over api.resend.com
+    │   # com.example.keycloak.client.* (api/model/invoker) is GENERATED into
+    │   # build/ from user-api/openapi.yaml — not committed
     └── resources/
         ├── META-INF/services/
         │   ├── org.keycloak.storage.UserStorageProviderFactory   # registers the user-storage factory
@@ -231,13 +285,14 @@ keycloak-provider/
             └── email-otp.ftl                     # OTP entry page (inherits base login theme)
 ```
 
-### How the three classes fit together
+### How the classes fit together
 
-1. **Factory** (`DemoUserStorageProviderFactory`). Keycloak discovers it via the `META-INF/services/` file (standard Java `ServiceLoader` mechanism). Its `getId()` returns `"demo-user-provider"` — this is the string the realm import file references to attach the provider to the realm. Its `create()` is called once per request scope, handing back a new provider instance.
-2. **Provider** (`DemoUserStorageProvider`). Implements two capability interfaces:
-   - `UserLookupProvider` — `getUserByUsername`, `getUserById`, `getUserByEmail`. Keycloak calls these during login and token issuance.
-   - `CredentialInputValidator` — `supportsCredentialType`, `isConfiguredFor`, `isValid`. Keycloak calls `isValid` with the submitted password; the demo compares it to the in-memory record.
-3. **User adapter** (`DemoUser`). A thin wrapper around the `DemoUserRecord` (username / password / email / roles), backed by Keycloak's `AbstractUserAdapter`. The key override is `getRoleMappingsInternal()`, which auto-creates any realm role named in the record if it doesn't already exist — this is what lets a fresh realm accept `client`, `user`, and `admin` even though only `user` / `admin` / `client` are pre-declared in `realm-export.json`. All the `set*()` / mutation methods are no-ops because the SPI is read-only.
+1. **Factory** (`DemoUserStorageProviderFactory`). Keycloak discovers it via the `META-INF/services/` file (standard Java `ServiceLoader` mechanism). Its `getId()` returns `"demo-user-provider"` — this is the string the realm import file references to attach the provider to the realm. Its `create()` resolves the user-service base URL (precedence: realm component config `userServiceUrl` → env `USER_SERVICE_URL` → default `http://user-service:8080`), builds a `UserServiceClient`, and hands back a provider instance per request scope.
+2. **Provider** (`DemoUserStorageProvider`). Implements two capability interfaces, both delegating to the REST client:
+   - `UserLookupProvider` — `getUserByUsername`, `getUserById`, `getUserByEmail`. Keycloak calls these during login and token issuance; the provider calls the matching REST operation.
+   - `CredentialInputValidator` — `supportsCredentialType`, `isConfiguredFor`, `isValid`. `isValid` POSTs to `/users/verify-credentials`; it never sees a stored password.
+3. **REST client wrapper** (`UserServiceClient`). Wraps the generated `UsersApi`/`ApiClient`. Translates the API into the small surface the SPI needs and owns the availability policy: a `404` (or any error) on a lookup → `null` ("no such user"); **any** error or non-200 on verify → `false` (**fail closed** — a user-service that is down can never authenticate anyone). Maps the generated `User` model into the `DemoUserRecord` the adapter expects.
+4. **User adapter** (`DemoUser`). A thin wrapper around the `DemoUserRecord` (username / email / roles; password is never carried in a lookup), backed by Keycloak's `AbstractUserAdapter`. The key override is `getRoleMappingsInternal()`, which auto-creates any realm role named in the record if it doesn't already exist — this is what lets a fresh realm accept `client`, `user`, and `admin` even though only `user` / `admin` / `client` are pre-declared in `realm-export.json`. All the `set*()` / mutation methods are no-ops because the SPI is read-only.
 
 ### How the realm attaches to the provider
 
@@ -256,7 +311,7 @@ keycloak-provider/
 }
 ```
 
-On realm import Keycloak looks up a factory with `providerId == "demo-user-provider"` and enables it for the realm. `NO_CACHE` is used so changes in the hardcoded `Map` take effect on the next request (important for a live demo; real providers usually want some cache policy).
+On realm import Keycloak looks up a factory with `providerId == "demo-user-provider"` and enables it for the realm. `NO_CACHE` means every lookup hits `user-service` over REST, so a change there is visible on the next request (important for a live demo; real providers usually want some cache policy). Optionally add `"userServiceUrl": ["http://host:port"]` to that `config` block to point the SPI at a different user-service from the admin console; otherwise the `USER_SERVICE_URL` env var (set on the `keycloak` compose service) wins.
 
 ### Build and runtime wiring
 
@@ -264,40 +319,45 @@ On realm import Keycloak looks up a factory with `providerId == "demo-user-provi
 
 ```
 FROM gradle:8.5-jdk17 AS provider-build
-COPY keycloak-provider/ .
-RUN gradle --no-daemon jar                             # produces keycloak-demo-provider-1.0.0.jar
+WORKDIR /build/keycloak-provider                       # keycloak-provider/ and user-api/ as siblings
+COPY keycloak-provider/settings.gradle.kts keycloak-provider/build.gradle.kts ./
+COPY user-api /build/user-api                          # the contract — generation reads ../user-api
+COPY keycloak-provider/src ./src
+RUN gradle --no-daemon shadowJar                       # generates the client, then fat-jars it:
+                                                       #   keycloak-demo-provider-1.0.0.jar
 
 FROM quay.io/keycloak/keycloak:26.0.7
 COPY --from=provider-build .../keycloak-demo-provider-1.0.0.jar /opt/keycloak/providers/
+COPY keycloak/themes /opt/keycloak/themes
 RUN /opt/keycloak/bin/kc.sh build                      # bakes the provider into the server image
 ```
 
-That means the SPI is part of the `keycloak-demo-keycloak` image and is available the moment Keycloak starts — no hot-deploy dance, no manual admin UI registration. Changes to the provider source require `podman compose build keycloak` and a container recreate to take effect.
+Build context is the repo root, so `user-api/openapi.yaml` is reachable; the build lays `keycloak-provider/` and `user-api/` out as siblings so the same `$rootDir/../user-api` path resolves identically on the host and in Docker. `shadowJar` (a) runs `openApiGenerate` to produce the `java`/`native` HTTP client, then (b) bundles it plus Jackson into the one provider jar, **relocating** `com.fasterxml.jackson` → `com.example.keycloak.shaded.jackson` so it cannot clash with the Jackson Keycloak already ships on the provider classpath. `mergeServiceFiles()` keeps both `META-INF/services` registrations intact. The SPI is part of the `keycloak-demo-keycloak` image and available the moment Keycloak starts — no hot-deploy, no manual admin UI registration. Changes to the provider source (or to `user-api/openapi.yaml`) require `podman compose build keycloak` and a container recreate to take effect.
 
 ### Adding a user
 
-Edit the `USERS` map in `DemoUserStorageProvider.java`:
+The hardcoded map now lives in **`user-service`**, not the provider. Edit `USERS` in `user-service/src/main/java/demo/userservice/UserController.java`:
 
 ```java
-static final Map<String, DemoUserRecord> USERS = Map.of(
-    "demoadmin",  new DemoUserRecord("demoadmin",  "123", "...", "Demo", "Admin",  Set.of("admin", "user")),
-    "demouser",   new DemoUserRecord("demouser",   "123", "...", "Demo", "User",   Set.of("user")),
-    "democlient", new DemoUserRecord("democlient", "123", "...", "Demo", "Client", Set.of("client")),
-    "newguy",     new DemoUserRecord("newguy",     "pw",  "...", "New",  "Guy",    Set.of("user", "client"))
+private static final Map<String, DemoUserRecord> USERS = Map.of(
+    "demoadmin",  new DemoUserRecord("demoadmin",  "123", "...", "Demo", "Admin",  List.of("admin", "user")),
+    "demouser",   new DemoUserRecord("demouser",   "123", "...", "Demo", "User",   List.of("user")),
+    "democlient", new DemoUserRecord("democlient", "123", "...", "Demo", "Client", List.of("client")),
+    "newguy",     new DemoUserRecord("newguy",     "pw",  "...", "New",  "Guy",    List.of("user", "client"))
 );
 ```
 
-Any role named that doesn't exist in the realm is auto-created at first login (see `DemoUser.getRoleMappingsInternal`). Realm roles that are referenced by BFF role gates should still be declared in `keycloak/realm-export.json` so a fresh-realm install has the same capabilities without waiting for a user to trigger auto-creation.
+Rebuild only that one image: `podman compose up -d --build --force-recreate user-service` (no Keycloak rebuild needed — the SPI didn't change). Any role name that doesn't exist in the realm is auto-created at first login (see `DemoUser.getRoleMappingsInternal`). Realm roles referenced by BFF role gates should still be declared in `keycloak/realm-export.json` so a fresh-realm install has the same capabilities without waiting for a user to trigger auto-creation.
 
-### Extending the provider to query a real backend
+### Pointing at a real backend
 
-Three steps, conceptually:
+The "thin SPI client → external user service" split that real deployments want is exactly what this demo now is. To back it with something real, change **only `user-service`** (the provider and the contract can stay put):
 
-1. Replace the hardcoded `USERS` map with whatever lookup you need — a JDBC query, an HTTP call to your identity service, an LDAP bind, etc.
-2. If your backend stores password hashes, change `isValid()` to compare hashes instead of plaintext (or return `false` and delegate password validation to Keycloak by implementing `UserStorageCredentialConfigured` differently).
-3. Add any extra capabilities your integration needs: `UserQueryProvider` for search-in-admin-console support, `UserRegistrationProvider` for self-service signup writing back to your source, etc.
+1. Replace `UserController`'s hardcoded `USERS` map with a real lookup — JDBC, LDAP bind, an upstream identity API, etc. — keeping the responses conformant to `user-api/openapi.yaml`.
+2. If the backend stores password hashes, do the hash comparison inside `verifyCredentials` (it already returns just a boolean, so the SPI side needs no change).
+3. To extend the contract (search, registration, …), add the operation to `user-api/openapi.yaml`, regenerate both sides, implement the server method, and add the matching SPI capability interface (`UserQueryProvider`, `UserRegistrationProvider`, …) wired through `UserServiceClient`.
 
-The factory's `getId()` stays the same, so no realm-export change is required; only the provider and adapter bodies change.
+The factory's `getId()` and `USER_SERVICE_URL` stay the same, so no realm-export change is required for cases 1–2.
 
 ## Parameterization
 
@@ -315,16 +375,18 @@ The same `frontend/` and `bff/` sources are launched three times — every app-s
 | `APP_ALLOWED_ROLES` | `bff/src/main/java/demo/UserController.java` | Comma-separated. If empty, `/api/user` is open to any authenticated user; otherwise the token must hold at least one listed role or the BFF returns 403 with `reason: "not_allowed"`. Both 200 and 403 bodies include `allowedRoles` so the frontend mirrors the rule without its own role env var (bff-b: `user,admin`; bff-c: `admin`). |
 | `CORS_ORIGIN` | `bff/src/main/resources/application.yml` | Single allowed origin (the paired frontend) |
 | `KEYCLOAK_AUTH_SERVER_URL` | BFF | Internal URL to Keycloak for JWKS lookup |
+| `USER_SERVICE_URL` | `DemoUserStorageProviderFactory` (on the `keycloak` service) | Base URL the SPI calls for user lookups / credential checks. Defaults to `http://user-service:8080`; a realm component `userServiceUrl` config value overrides it. |
 
 ## Implementation notes
 
-- **Provider build is inside the image.** `Dockerfile.keycloak` uses a multi-stage build: stage 1 runs `gradle jar` on `keycloak-provider/`, stage 2 copies the jar into `/opt/keycloak/providers/` and runs `kc.sh build` so the SPI is registered at image-build time.
+- **Provider build is inside the image.** `Dockerfile.keycloak` uses a multi-stage build: stage 1 runs `gradle shadowJar` on `keycloak-provider/` (generating the REST client from `user-api/openapi.yaml` first, then fat-jarring it with relocated Jackson), stage 2 copies the jar into `/opt/keycloak/providers/`, adds `keycloak/themes`, and runs `kc.sh build` so the SPI is registered at image-build time.
+- **Contract-first, one source of truth.** `user-api/openapi.yaml` is the only hand-written description of the SPI↔user-service wire format; the SPI's client and the user-service's server stubs are both generated from it (see [Contract-first user-service](#contract-first-user-service)). Editing the spec and rebuilding regenerates both sides.
 - **Role claim flattening.** Each client in `keycloak/realm-export.json` has an `oidc-usermodel-realm-role-mapper` protocol mapper that exposes realm roles as a top-level `roles` claim (in addition to `realm_access.roles`). The BFFs are configured with `micronaut.security.token.roles-name: roles` to read it.
 - **Client library version matters.** `keycloak-js` must be ≥ 26.x to work with Keycloak 26 — older versions (23.x) validate `nonce` on access/refresh tokens, which KC 26 no longer emits.
 - **Isolated node_modules per container.** Each `web-*` service mounts `./frontend` as source but uses an anonymous volume for `/app/node_modules`, so the three `npm install` invocations don't race on the bind-mounted directory.
 - **Compile once, run three times.** The BFF is built into a single fat-jar image (`bff/Dockerfile`, shadow plugin → `eclipse-temurin:17-jre`) tagged `keycloak-demo-bff:latest`. All three `bff-*` services share that image and differ only in port + env vars — no bind mount, no per-container Gradle cache, no compile on every `up`. Source edits need `podman compose up -d --build --force-recreate bff-a bff-b bff-c` (one command: rebuilds the image, then recreates all three containers onto the new image ID).
 - **Realm re-import semantics.** Keycloak's `--import-realm` uses `IGNORE_EXISTING` by default, so the realm JSON only seeds an empty DB. To pick up JSON edits on a running stack, either `podman compose down -v && up` (destroys all data) or apply the change to the running realm via the admin API.
-- **Two SPIs, one jar.** `keycloak-provider/` ships both the user-storage provider and the email-OTP authenticator. Two service files under `META-INF/services/` register them. The build picks up both automatically via `gradle jar`.
+- **Two SPIs, one jar.** `keycloak-provider/` ships both the user-storage provider and the email-OTP authenticator. Two service files under `META-INF/services/` register them; `shadowJar`'s `mergeServiceFiles()` keeps both intact in the fat jar. The email-OTP authenticator stays in the JVM by design — only the *user store* was extracted; when OTP needs an address it calls `getUserByEmail`, which resolves over the same SPI→REST path.
 - **2FA only runs in the browser flow.** The realm's `direct grant` flow is untouched, so `grant_type=password` against `/realms/demo-realm/protocol/openid-connect/token` returns a token without OTP — useful for scripting but not equivalent to an interactive login.
 
 ## Tear Down
