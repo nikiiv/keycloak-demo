@@ -12,26 +12,26 @@ import org.keycloak.storage.StorageId;
 import org.keycloak.storage.UserStorageProvider;
 import org.keycloak.storage.user.UserLookupProvider;
 
-import java.util.Map;
 import java.util.Set;
 
+/**
+ * User Storage SPI provider. The user data is no longer hardcoded here — this
+ * runs inside Keycloak's JVM but only as a thin REST client of the standalone
+ * user-service (see {@link UserServiceClient}).
+ */
 public class DemoUserStorageProvider
         implements UserStorageProvider, UserLookupProvider, CredentialInputValidator {
 
     private static final Logger LOG = Logger.getLogger(DemoUserStorageProvider.class);
 
-    static final Map<String, DemoUserRecord> USERS = Map.of(
-            "demoadmin",  new DemoUserRecord("demoadmin",  "123", "nikolai.ivanchev@gmail.com",  "Demo", "Admin",  Set.of("admin", "user")),
-            "demouser",   new DemoUserRecord("demouser",   "123", "nikolay.ivanchev@gmail.com",  "Demo", "User",   Set.of("user")),
-            "democlient", new DemoUserRecord("democlient", "123", "nikiiv.linococo@gmail.com",   "Demo", "Client", Set.of("client"))
-    );
-
     private final KeycloakSession session;
     private final ComponentModel model;
+    private final UserServiceClient client;
 
-    public DemoUserStorageProvider(KeycloakSession session, ComponentModel model) {
+    public DemoUserStorageProvider(KeycloakSession session, ComponentModel model, UserServiceClient client) {
         this.session = session;
         this.model = model;
+        this.client = client;
     }
 
     @Override
@@ -47,7 +47,7 @@ public class DemoUserStorageProvider
     @Override
     public UserModel getUserByUsername(RealmModel realm, String username) {
         LOG.infof("getUserByUsername called with username: %s", username);
-        DemoUserRecord record = USERS.get(username);
+        DemoUserRecord record = client.findByUsername(username);
         if (record == null) {
             LOG.infof("User not found: %s", username);
             return null;
@@ -59,15 +59,8 @@ public class DemoUserStorageProvider
     @Override
     public UserModel getUserByEmail(RealmModel realm, String email) {
         LOG.infof("getUserByEmail called with email: %s", email);
-        if (email == null) return null;
-        for (DemoUserRecord record : USERS.values()) {
-            if (email.equalsIgnoreCase(record.email())) {
-                LOG.infof("User found by email: %s -> %s", email, record.username());
-                return new DemoUser(session, realm, model, record);
-            }
-        }
-        LOG.infof("No user for email: %s", email);
-        return null;
+        DemoUserRecord record = client.findByEmail(email);
+        return record == null ? null : new DemoUser(session, realm, model, record);
     }
 
     @Override
@@ -86,8 +79,7 @@ public class DemoUserStorageProvider
         if (!supportsCredentialType(input.getType())) {
             return false;
         }
-        DemoUserRecord record = USERS.get(user.getUsername());
-        boolean valid = record != null && record.password().equals(input.getChallengeResponse());
+        boolean valid = client.verifyCredentials(user.getUsername(), input.getChallengeResponse());
         LOG.infof("isValid result for %s: %s", user.getUsername(), valid);
         return valid;
     }

@@ -1,11 +1,16 @@
 FROM gradle:8.5-jdk17 AS provider-build
-WORKDIR /build
+# keycloak-provider and user-api are kept as siblings so the build's
+# $rootDir/../user-api/openapi.yaml path resolves identically here and on the host.
+WORKDIR /build/keycloak-provider
 COPY keycloak-provider/settings.gradle.kts keycloak-provider/build.gradle.kts ./
+COPY user-api /build/user-api
 RUN gradle --no-daemon dependencies > /dev/null 2>&1 || true
 COPY keycloak-provider/src ./src
-RUN gradle --no-daemon jar
+# shadowJar bundles the generated REST client + relocated Jackson into the
+# single provider jar that Keycloak loads.
+RUN gradle --no-daemon shadowJar
 
 FROM quay.io/keycloak/keycloak:26.0.7
-COPY --from=provider-build /build/build/libs/keycloak-demo-provider-1.0.0.jar /opt/keycloak/providers/
+COPY --from=provider-build /build/keycloak-provider/build/libs/keycloak-demo-provider-1.0.0.jar /opt/keycloak/providers/
 COPY keycloak/themes /opt/keycloak/themes
 RUN /opt/keycloak/bin/kc.sh build
