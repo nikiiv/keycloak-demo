@@ -4,9 +4,9 @@ Survival notes for working in this repo. The **README.md** is the user-facing do
 
 ## What this is
 
-A Keycloak SSO demo: one Vite SPA + one Micronaut BFF, launched three times (App A/B/C) as independent OIDC clients. End-user identity comes from a custom Keycloak User Storage SPI in `keycloak-provider/` — users are a hardcoded Java `Map`, not rows in Keycloak's Postgres.
+A Keycloak SSO demo: one Vite SPA + one Micronaut BFF, launched three times (App A/B/C) as independent OIDC clients. End-user identity lives in a standalone Micronaut REST service (`user-service/`); the Keycloak User Storage SPI in `keycloak-provider/` holds **no** user data — it calls `user-service` over HTTP for every lookup and credential check. The SPI↔user-service wire contract is defined OpenAPI-first in `user-api/openapi.yaml`, and the SPI's HTTP client + the user-service's server stubs are both code-generated from that one file. Users are a hardcoded Java `Map` **in `user-service`**, not rows in Keycloak's Postgres.
 
-Three demo users (SPI-hardcoded) — identified by email because `loginWithEmailAllowed=true`. Username still works as an alternate identifier:
+Three demo users (hardcoded in `user-service`, **not** the SPI) — identified by email because `loginWithEmailAllowed=true`. Username still works as an alternate identifier:
 
 | Username | Email | Password | Roles |
 |---|---|---|---|
@@ -29,9 +29,11 @@ Per-app role model. The BFF is the source of truth: each bff reads `APP_ALLOWED_
 - `frontend/` — shared SPA source. `src/App.ts` has the banner + Protected-panel rendering; `src/User.ts` wraps Keycloak/BFF calls; `index.html` has all CSS.
 - `bff/` — shared Micronaut backend. `src/main/java/demo/UserController.java` has the role checks; `src/main/resources/application.yml` maps env vars to `app.*` config. `bff/Dockerfile` builds a single fat-jar image (`keycloak-demo-bff:latest`) shared by all three `bff-*` services.
 - `keycloak/realm-export.json` — realm seed: clients, realm roles, default-role composite, SPI component registration.
-- `keycloak-provider/` — standalone Gradle project shipping **two** SPIs in one jar: the User Storage provider (`DemoUserStorageProvider`) and the Email-OTP Authenticator (`EmailOtpAuthenticator` + factory + `ResendClient`). Two service files under `src/main/resources/META-INF/services/` register them. The OTP form lives in `src/main/resources/theme-resources/templates/email-otp.ftl`. To add a user, edit the `USERS` map in `DemoUserStorageProvider.java` and rebuild the Keycloak image (`podman compose build keycloak && podman compose up -d --force-recreate keycloak`).
-- `docker-compose.yml` — parameterizes every app-specific value via env vars. Three web services (5173/5174/5175), three BFFs (8081/8082/8083), plus Keycloak (8888) and Postgres.
-- `Dockerfile.keycloak` — multi-stage: builds the SPI jar and bakes it into the Keycloak image via `kc.sh build`. SPI changes need a full image rebuild, not just a container restart.
+- `user-api/openapi.yaml` — the single hand-written SPI↔user-service contract. Three operations: `getUserByUsername` (`GET /users/{username}`), `getUserByEmail` (`GET /users?email=…`), `verifyCredentials` (`POST /users/verify-credentials`, always 200 `{valid}`). `User` model has no password. Both sides regenerate from this at build time.
+- `user-service/` — standalone Micronaut REST service, the SPI's backend. **This is where the demo users live**: edit the hardcoded `USERS` map in `src/main/java/demo/userservice/UserController.java` (it extends the generated `AbstractUsersController`), then `podman compose up -d --build --force-recreate user-service` — **no Keycloak rebuild** (the SPI didn't change). Built into a fat-jar image (`keycloak-demo-user-service:latest`, `user-service/Dockerfile`); build context is the repo root so it can read `user-api/openapi.yaml`.
+- `keycloak-provider/` — standalone Gradle project shipping **two** SPIs in one jar: the User Storage provider (`DemoUserStorageProvider`, now a thin REST client via `UserServiceClient` → generated `UsersApi`) and the Email-OTP Authenticator (`EmailOtpAuthenticator` + factory + `ResendClient`). Two service files under `src/main/resources/META-INF/services/` register them. The OTP form lives in `src/main/resources/theme-resources/templates/email-otp.ftl`. The provider holds no user data — to add/change a user, edit `user-service` (see above), not this module.
+- `docker-compose.yml` — parameterizes every app-specific value via env vars. Three web services (5173/5174/5175), three BFFs (8081/8082/8083), `user-service` (host 8090, container 8080), plus Keycloak (8888) and Postgres.
+- `Dockerfile.keycloak` — multi-stage: stage 1 runs `gradle shadowJar` on `keycloak-provider/`, which first code-generates the REST client from `user-api/openapi.yaml` (copied in as a sibling) then fat-jars it with relocated Jackson; stage 2 bakes the jar into the Keycloak image via `kc.sh build`. SPI changes need a full image rebuild, not just a container restart.
 
 ## Non-obvious runtime gotchas
 
@@ -73,7 +75,9 @@ Get the real path with `podman machine inspect --format '{{.ConnectionInfo.Podma
 | BFF source | `podman compose up -d --build --force-recreate bff-a bff-b bff-c` — one build, three recreates (they share the image). `--force-recreate` is the belt-and-suspenders bit: without it, some compose implementations don't notice the image ID moved and leave the old containers running. |
 | Env var on a service | `podman compose up -d --force-recreate <service>` |
 | `docker-compose.yml` structural change | `podman compose up -d` (compose picks up the diff) |
-| `keycloak-provider/` SPI source | `podman compose build keycloak && podman compose up -d --force-recreate keycloak` |
+| `user-service/` source (incl. the `USERS` map / adding a user) | `podman compose up -d --build --force-recreate user-service` — no Keycloak rebuild; SPI is `NO_CACHE` so changes show on the next lookup |
+| `user-api/openapi.yaml` (the contract) | regenerates **both** sides: `podman compose up -d --build --force-recreate user-service` **and** `podman compose build keycloak && podman compose up -d --force-recreate keycloak` |
+| `keycloak-provider/` SPI source (provider/OTP code, not user data) | `podman compose build keycloak && podman compose up -d --force-recreate keycloak` |
 | `keycloak/realm-export.json` | takes effect on fresh DB only; otherwise patch the live realm via admin API |
 | New realm role needed for a running demo | POST `/admin/realms/demo-realm/roles` with admin token; also add to `realm-export.json` for future fresh installs |
 | `EmailOtpAuthenticator` / `ResendClient` source | `podman compose build keycloak && podman compose up -d --force-recreate keycloak` — same as any SPI change |
