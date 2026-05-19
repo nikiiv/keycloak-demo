@@ -55,6 +55,7 @@ Enforcement happens in the BFF (`/api/user` returns a structured 403 with `reaso
 
 | Service | Host port | Role |
 |---------|-----------|------|
+| nginx | 80, 443 | TLS-terminating reverse proxy; routes the whitelabel hostnames to the apps + Keycloak (see [Whitelabel hostnames](#whitelabel-hostnames-nginx--https)) |
 | PostgreSQL | 5432 | Keycloak internal metadata (realm config, sessions) — **not** end users |
 | user-service | 8090 | Standalone Micronaut store of the demo users; the Keycloak SPI's REST backend (container port 8080) |
 | Keycloak | 8888 | Auth server with demo-realm (container port 8080) |
@@ -71,7 +72,7 @@ Enforcement happens in the BFF (`/api/user` returns a structured 403 with `reaso
 ./start.sh
 ```
 
-`start.sh` is a thin wrapper that sources `.envrc`, takes any running stack down (volumes preserved), rebuilds the custom images (`keycloak-demo-keycloak` + `keycloak-demo-bff` + `keycloak-demo-user-service`), and brings everything back up. Equivalent to:
+`start.sh` is a thin wrapper that sources `.envrc`, takes any running stack down (volumes preserved), rebuilds the custom images (`keycloak-demo-keycloak` + `keycloak-demo-bff` + `keycloak-demo-user-service` + `keycloak-demo-nginx`), and brings everything back up. Equivalent to:
 
 ```bash
 source .envrc                # DOCKER_HOST + RESEND_API_TOKEN
@@ -91,6 +92,41 @@ export DOCKER_HOST="unix://$(podman machine inspect --format '{{.ConnectionInfo.
 ```
 
 Copy `.envrc.example` to `.envrc` (it's gitignored, because it also holds the Resend API token — see the 2FA section below). If you use [direnv](https://direnv.net/), run `direnv allow` once and it will be set automatically whenever you `cd` into the project. Otherwise `source .envrc` in each shell.
+
+## Whitelabel hostnames (nginx + HTTPS)
+
+An `nginx` service fronts the stack and routes by `Host` header so each app gets its own hostname over HTTPS:
+
+| Hostname | Goes to |
+|---|---|
+| `https://client.home.arpa` | App A (web-a) |
+| `https://user.home.arpa` | App B (web-b) |
+| `https://admin.home.arpa` | App C (web-c) |
+| `https://auth.home.arpa` | Keycloak |
+
+The plain `localhost` endpoints (`5173`/`5174`/`5175`, Keycloak `8888`) keep working unchanged — the hostnames are an additional front door, not a replacement.
+
+**1. Point the names at the host.** Add them to `/etc/hosts` (or local DNS), resolving to wherever the stack runs — `127.0.0.1` for same-machine, or the host's LAN IP if you browse from other devices:
+
+```
+127.0.0.1 client.home.arpa
+127.0.0.1 user.home.arpa
+127.0.0.1 admin.home.arpa
+127.0.0.1 auth.home.arpa
+```
+
+**2. Accept the self-signed cert once.** HTTPS is **required**, not cosmetic: keycloak-js 26 uses the Web Crypto API (`crypto.randomUUID` for the OIDC state/nonce, `crypto.subtle` for PKCE), which browsers expose only in a *secure context* (HTTPS, or `http://localhost`). Over plain `http://<hostname>` login throws `Web Crypto API is not available`.
+
+To stay zero-setup (no local CA, no `mkcert`), `Dockerfile.nginx` generates a self-signed cert **inside the image at build time** (SAN: the four names, `*.home.arpa`, `localhost`, `127.0.0.1`). The cost is a one-time per-browser warning: open `https://auth.home.arpa` **and** the app host (e.g. `https://client.home.arpa`) once and click through ("Advanced → proceed"; Firefox: add a permanent exception). The login redirect and the silent-SSO iframe cross both origins, so both must be accepted. After that the origin is still a secure context, so Web Crypto / PKCE work normally — no app changes, PKCE stays on.
+
+**3. Rootless Podman + ports 80/443.** Rootless Podman cannot publish host ports below `net.ipv4.ip_unprivileged_port_start` (default `1024`). `start.sh` preflights this and fails fast with the fix:
+
+```bash
+sudo sysctl net.ipv4.ip_unprivileged_port_start=80
+# persist: echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/99-podman-privports.conf
+```
+
+On macOS the limit lives in the `podman machine` VM (the check probes it via `podman machine ssh`; re-run the VM-side `sysctl` after a machine recreate). Docker and rootful Podman bind 80/443 without any of this. Set `ALLOW_PRIV_PORTS_UNCHECKED=1` to skip the preflight.
 
 ## Test SSO + AuthZ
 
@@ -127,6 +163,8 @@ The banner content is rendered from the BFF's 403 body (`message`, `allowedRoles
 - App A: http://localhost:5173 (open to all roles)
 - App B: http://localhost:5174 (no clients)
 - App C: http://localhost:5175 (admin only)
+
+Also reachable over HTTPS at `https://client|user|admin.home.arpa` once `/etc/hosts` is set — see [Whitelabel hostnames](#whitelabel-hostnames-nginx--https).
 
 Frontends proxy `/api/*` to their BFF via Vite's dev-server proxy, so browser calls are same-origin (no CORS).
 
