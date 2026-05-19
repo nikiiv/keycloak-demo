@@ -60,6 +60,33 @@ esac
 
 echo "==> Using ${COMPOSE[*]} (engine: $ENGINE)"
 
+# Preflight: rootless Podman cannot publish host ports below
+# net.ipv4.ip_unprivileged_port_start (default 1024), so the 80/443 binds in
+# docker-compose.yml otherwise fail ~2 min in with an opaque rootlessport
+# error. Fail fast here with the fix instead. No-op for Docker and rootful
+# Podman. On macOS the limit lives in the podman-machine Linux VM (not the
+# Mac, which has no /proc), so probe the VM over `podman machine ssh`.
+# Override with ALLOW_PRIV_PORTS_UNCHECKED=1.
+if [ "$ENGINE" = podman ] && [ "${ALLOW_PRIV_PORTS_UNCHECKED:-0}" != 1 ]; then
+  ROOTLESS="$(podman info --format '{{.Host.Security.Rootless}}' 2>/dev/null || echo true)"
+  if [ "$ROOTLESS" = true ]; then
+    if [ "$(uname)" = Darwin ]; then
+      FLOOR="$(podman machine ssh 'cat /proc/sys/net/ipv4/ip_unprivileged_port_start' 2>/dev/null | tr -dc '0-9')"
+      FIX="podman machine ssh sudo sysctl net.ipv4.ip_unprivileged_port_start=80   # inside the VM; re-run after 'podman machine' stop/recreate"
+    else
+      FLOOR="$(tr -dc '0-9' < /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || true)"
+      FIX="sudo sysctl net.ipv4.ip_unprivileged_port_start=80   # persist: echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/99-podman-privports.conf"
+    fi
+    FLOOR="${FLOOR:-1024}"
+    if [ "$FLOOR" -gt 80 ]; then
+      echo "Error: rootless Podman cannot bind host ports 80/443 (ip_unprivileged_port_start=$FLOOR)." >&2
+      echo "Fix:   $FIX" >&2
+      echo "       (or use rootful Podman, or set ALLOW_PRIV_PORTS_UNCHECKED=1 to skip this check)" >&2
+      exit 1
+    fi
+  fi
+fi
+
 PROJECT="$(basename "$PWD")"
 
 # Block until a compose service reports a healthy container (or fail loudly).

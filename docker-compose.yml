@@ -43,6 +43,27 @@ services:
       timeout: 5s
       retries: 10
 
+  # Reverse proxy: whitelabel hostnames -> the three web-* apps + Keycloak.
+  # Routes by Host header; see nginx/default.conf. Host port 80 needs
+  # net.ipv4.ip_unprivileged_port_start<=80 under rootless Podman.
+  nginx:
+    build:
+      context: .
+      dockerfile: Dockerfile.nginx
+    image: keycloak-demo-nginx:latest
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro,Z
+    networks:
+      - keycloak-network
+    depends_on:
+      - web-a
+      - web-b
+      - web-c
+      - keycloak
+
   keycloak:
     build:
       context: .
@@ -62,6 +83,13 @@ services:
       RESEND_FROM: "Demo Realm <onboarding@resend.dev>"
       OTP_TRUST_WINDOW_MINUTES: "60"
       USER_SERVICE_URL: http://user-service:8080
+      # Public hostname (browser-facing) — Keycloak 26 hostname-v2. STRICT=false
+      # keeps localhost:8888 + backchannel resolving by request host so the
+      # CLAUDE.md curl/admin scripts keep working. Plain HTTP behind nginx.
+      KC_HOSTNAME: https://auth.home.arpa
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
     volumes:
       - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json
       - keycloak_data:/opt/keycloak/data
@@ -114,7 +142,7 @@ services:
     ports:
       - "5173:5173"
     environment:
-      VITE_KEYCLOAK_URL: http://localhost:8888
+      VITE_KEYCLOAK_URL: https://auth.home.arpa
       VITE_KEYCLOAK_CLIENT_ID: app1-client
       VITE_APP_NAME: "App A"
       VITE_APP_TITLE: "client space"
@@ -126,7 +154,7 @@ services:
     ports:
       - "5174:5173"
     environment:
-      VITE_KEYCLOAK_URL: http://localhost:8888
+      VITE_KEYCLOAK_URL: https://auth.home.arpa
       VITE_KEYCLOAK_CLIENT_ID: app2-client
       VITE_APP_NAME: "App B"
       VITE_APP_TITLE: "client self service"
@@ -138,7 +166,7 @@ services:
     ports:
       - "5175:5173"
     environment:
-      VITE_KEYCLOAK_URL: http://localhost:8888
+      VITE_KEYCLOAK_URL: https://auth.home.arpa
       VITE_KEYCLOAK_CLIENT_ID: app3-client
       VITE_APP_NAME: "App C (admin)"
       VITE_APP_TITLE: "restricted admin area"
@@ -152,7 +180,7 @@ services:
     environment:
       MICRONAUT_APPLICATION_NAME: bff-a
       APP_SOURCE: bff-a
-      CORS_ORIGIN: http://localhost:5173
+      CORS_ORIGIN: https://client.home.arpa
       KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
 
   bff-b:
@@ -163,7 +191,7 @@ services:
       MICRONAUT_APPLICATION_NAME: bff-b
       APP_SOURCE: bff-b
       APP_ALLOWED_ROLES: "user,admin"
-      CORS_ORIGIN: http://localhost:5174
+      CORS_ORIGIN: https://user.home.arpa
       KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
 
   bff-c:
@@ -174,7 +202,7 @@ services:
       MICRONAUT_APPLICATION_NAME: bff-c
       APP_SOURCE: bff-c
       APP_ALLOWED_ROLES: "admin"
-      CORS_ORIGIN: http://localhost:5175
+      CORS_ORIGIN: https://admin.home.arpa
       KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
 
 volumes:
