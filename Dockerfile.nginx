@@ -1,0 +1,27 @@
+# nginx reverse proxy that TLS-terminates the whitelabel hostnames.
+#
+# Why a custom image: keycloak-js 26 needs a secure context (crypto.randomUUID
+# for OIDC state/nonce, crypto.subtle for PKCE), which browsers expose only
+# over HTTPS or http://localhost. Plain http://<name> breaks login. We serve
+# HTTPS with a self-signed cert generated HERE, at build time — nothing on the
+# host, nothing to install. Browsers show a one-time "not secure" warning;
+# after click-through the origin is still an HTTPS secure context, so Web
+# Crypto works and PKCE login succeeds. This keeps the demo zero-setup for
+# anyone cloning the repo (just /etc/hosts).
+#
+# nginx:alpine ships no openssl CLI, so add it just to mint the cert. A fresh
+# cert is generated on every image build (fine for a demo). SAN covers every
+# name/IP the proxy can be reached by, so "proceed" works without an extra
+# SAN-mismatch error.
+
+FROM docker.io/library/nginx:1.27-alpine
+
+RUN apk add --no-cache openssl \
+ && mkdir -p /etc/nginx/certs \
+ && openssl req -x509 -nodes -newkey rsa:2048 -days 3650 \
+      -keyout /etc/nginx/certs/home-arpa-key.pem \
+      -out    /etc/nginx/certs/home-arpa.pem \
+      -subj   "/CN=home.arpa" \
+      -addext "subjectAltName=DNS:client.home.arpa,DNS:user.home.arpa,DNS:admin.home.arpa,DNS:auth.home.arpa,DNS:*.home.arpa,DNS:localhost,IP:127.0.0.1,IP:192.168.0.25" \
+ && chmod 644 /etc/nginx/certs/home-arpa.pem \
+ && chmod 600 /etc/nginx/certs/home-arpa-key.pem
