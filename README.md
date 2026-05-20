@@ -115,10 +115,19 @@ The three BFFs are the same Micronaut codebase / same image (`keycloak-demo-bff:
 ./start.sh
 ```
 
-`start.sh` is a thin wrapper that auto-detects docker/podman, sources `.envrc`, takes any running stack down (volumes preserved), rebuilds the custom images, and brings everything back up. To wipe the realm DB and re-import `realm-export.json` from scratch:
+`start.sh` is a thin wrapper that auto-detects docker/podman, sources `.envrc`, takes any running stack down (volumes preserved), rebuilds the custom images, and brings everything back up.
+
+To stop the stack:
 
 ```bash
-docker compose down -v && ./start.sh
+./stop.sh           # tear containers down, keep volumes (default)
+./stop.sh --wipe    # also remove Postgres + Keycloak volumes
+```
+
+`stop.sh` is the symmetric counterpart to `start.sh` — same engine auto-detection, and it always passes the `--dev` overlay if present so it covers Level 1 and Level 2 stacks alike. To wipe the realm DB and re-import `realm-export.json` from scratch:
+
+```bash
+./stop.sh --wipe && ./start.sh
 ```
 
 Wait for all services to start (Keycloak takes ~30 seconds; the three Vite-preview containers `npm install && vite build` once on first start). All custom images compile from source at build time — Keycloak SPI (provider + generated REST client) during the Keycloak image build, the Micronaut BFF and `user-service` into shadow jars during their respective image builds. The two generated halves both come from `user-api/openapi.yaml`.
