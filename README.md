@@ -123,15 +123,17 @@ Wait for all services to start (Keycloak takes ~30 seconds; the three Vite-previ
 
 ### Development workflows
 
-The `./start.sh` stack is the demo. For active development there are two opt-in overlays — the default stays as-is unless you use them.
+Three modes, each one command.
 
-| Level | When | How | Loop |
+| Level | When | Single command | Loop |
 |---|---|---|---|
-| **1 — default** | Casual edits, demo runs | `./start.sh` then per-service `docker compose up -d --force-recreate …` | Shell HMR <1s; MFE ~10-15s; BFF ~90s |
-| **2 — MFE rebuild-on-save** | Actively writing MFE source | `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d` (uses each MFE's `dev` script: `vite build --watch` + `vite preview`) | Save → ~1-2s rebuild inside the container → hard-refresh the browser. No `--force-recreate` between edits. |
-| **3 — BFF on the host** | Actively writing BFF source | `./dev-bff.sh client\|ops\|admin` runs Gradle continuous-build locally; combine with the dev overlay + `BFF_<WHICH>_URL=http://host.docker.internal:<port>` so the shell's Vite proxy targets your host process | Save → ~3s Gradle incremental → Micronaut restart in place |
+| **1 — demo** | Casual edits, just running the stack | `./start.sh` | Shell HMR <1s; MFE source → per-service `docker compose up -d --force-recreate mfe-X` (~10-15s); BFF source → `--build --force-recreate` (~90s) |
+| **2 — MFE rebuild-on-save** | Actively writing MFE source | `./start.sh --dev` | Save → ~1-2s incremental rebuild inside the container → hard-refresh the browser. No `--force-recreate`. |
+| **3 — BFF on the host** | Actively writing BFF source | `./start.sh --dev` then `./dev-bff.sh client\|ops\|admin` | Save → ~3s Gradle incremental → Micronaut restart in place |
 
-Level 2 + Level 3 stack together — both rely on `docker-compose.dev.yml` for the shell's `BFF_*_URL` overrides. See `CLAUDE.md → Dev workflows` for the issuer caveat (browser-minted tokens use `http://localhost:8888/...` as `iss`, so the host BFF needs `KEYCLOAK_AUTH_SERVER_URL` pointing at the same URL — `dev-bff.sh` already handles that).
+`./start.sh --dev` adds `docker-compose.dev.yml` and switches the MFE containers to `vite build --watch + vite preview`. `./dev-bff.sh` detects docker vs podman, stops the compose BFF for the chosen role, recreates the shell with the right host-gateway URL (`host.docker.internal` for Docker, `host.containers.internal` for Podman), and then execs `./gradlew run -t --no-daemon` in the foreground. Tokens minted in the browser use `http://localhost:8888/realms/demo-realm` as the issuer — the script sets `KEYCLOAK_AUTH_SERVER_URL` to match.
+
+To return to demo mode: `docker compose up -d bff-<which>` (restarts the compose BFF) then `./start.sh` (resets the shell without the host override).
 
 ### Running with Podman on macOS
 
