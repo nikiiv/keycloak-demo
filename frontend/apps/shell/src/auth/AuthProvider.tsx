@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { keycloak } from './keycloak';
 
 interface AuthContextValue {
@@ -30,6 +31,7 @@ function initOnce(): Promise<boolean> {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     let cancelled = false;
@@ -46,8 +48,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
     keycloak.onAuthSuccess = () => setAuthenticated(true);
-    keycloak.onAuthLogout = () => setAuthenticated(false);
-    keycloak.onAuthRefreshError = () => setAuthenticated(false);
+    // Clearing the query cache on logout invalidates every MFE-visible query
+    // (whoami, profile, BFF responses), so anything that re-renders against
+    // an authenticated state automatically falls back to its anonymous branch
+    // without per-MFE bookkeeping.
+    keycloak.onAuthLogout = () => {
+      setAuthenticated(false);
+      queryClient.clear();
+    };
+    keycloak.onAuthRefreshError = () => {
+      setAuthenticated(false);
+      queryClient.clear();
+    };
 
     return () => {
       cancelled = true;
@@ -55,14 +67,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       keycloak.onAuthLogout = undefined;
       keycloak.onAuthRefreshError = undefined;
     };
-  }, []);
+  }, [queryClient]);
 
   const value: AuthContextValue = {
     ready,
     authenticated,
-    // Landing on /work after auth matches the old SPA behaviour; the redirect
-    // is allowed by the client's redirectUris pattern in realm-export.json.
-    login: () => keycloak.login({ redirectUri: window.location.origin + '/work' }),
+    // Land on the home page after auth; the Nav will show whichever MFE links
+    // the user's roles unlock. The redirect matches the client's redirectUris
+    // pattern in realm-export.json.
+    login: () => keycloak.login({ redirectUri: window.location.origin + '/' }),
     logout: () => keycloak.logout()
   };
 
