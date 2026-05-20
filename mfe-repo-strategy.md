@@ -1,155 +1,163 @@
 # MFE Repo & Deployment Strategy
 
-Анализ на четирите въпроса около разделяне на MFE-та, независим деплой,
-поли- vs моно-репо и собствени домейни. Базиран на текущото състояние на
-кода (`apps/shell`, `apps/mfe-*`, `packages/shell-api`, `docker-compose.yml`).
+Analysis of four questions about splitting MFEs, independent deploys,
+poly-repo vs monorepo trade-offs, and per-MFE subdomains. Grounded in the
+current state of the code (`apps/shell`, `apps/mfe-*`, `packages/shell-api`,
+`docker-compose.yml`).
 
-## 1) Може ли всеки MFE да се извади в отделно репо?
+## 1) Can each MFE be moved into its own repo?
 
-**Да, технически архитектурата вече е готова за това.** Module Federation е
-built specifically за този сценарий — шелът зарежда `remoteEntry.js` от URL
-по време на runtime, а не по време на build. Конкретните точки на свързване
-в текущия код:
+**Yes — the architecture is already wired for it.** Module Federation
+was built for exactly this scenario: the shell fetches `remoteEntry.js`
+from a URL at runtime, not at build time. The concrete coupling points
+in the current code:
 
-- `apps/shell/vite.config.ts:8-10` — URL-ите към `mfeClient/mfeOps/mfeAdmin`
-  идват от env vars (`VITE_MFE_*_URL`). Сменяш URL → шелът автоматично тегли
-  от новото място. Не е нужно шелът да знае откъде идва кодът, само URL-а.
+- `apps/shell/vite.config.ts:8-10` — the URLs for `mfeClient/mfeOps/mfeAdmin`
+  come from env vars (`VITE_MFE_*_URL`). Change the URL → the shell
+  fetches from the new location. The shell doesn't need to know *where*
+  the code lives, only the URL.
 - `apps/shell/src/components/MfeOutlet.tsx:8-10` —
-  `lazy(() => import('mfeClient/Mfe'))` се транслира на runtime fetch, не на
-  bundle-time import. MFE-то може да живее на чужд сървър, чуждо репо, чужд
+  `lazy(() => import('mfeClient/Mfe'))` is rewritten by the federation
+  plugin into a runtime fetch, not a bundle-time import. The MFE can live
+  on someone else's server, in someone else's repo, in someone else's
   cloud account.
-- `packages/shell-api/src/index.ts` — единственият контракт между шел и MFE.
-  Това е TypeScript-only пакет, който трябва да се публикува (npm registry,
-  GitHub Packages, или вътрешен Verdaccio) преди извличането, за да го
-  консумират и шелът, и трите MFE репота.
+- `packages/shell-api/src/index.ts` — the single contract between shell
+  and MFE. A TypeScript-only package that has to be **published**
+  (npm registry, GitHub Packages, or an internal Verdaccio) before any
+  extraction, so both the shell and the three MFE repos can consume the
+  same version.
 
-**Какво трябва да се направи при разделяне:**
+**What the split actually requires:**
 
-1. Изваждаш `packages/shell-api` в отделно репо или го публикуваш като
-   versioned npm package (напр. `@yourorg/shell-api@1.0.0`).
-2. Всеки MFE репо държи свой `package.json`, `vite.config.ts`, Dockerfile,
-   CI/CD.
-3. Шел репото оставя само `apps/shell` + неговите конфиги; remote URL-ите
-   идват от env (вече така е).
-4. Споделените deps в `federation({ shared: [...] })` — `react`,
-   `react-dom`, `react-router-dom`, `@tanstack/react-query` — версиите им
-   стават **версионен контракт между репата**. Не може едно репо да
-   upgrade-не React на 19, докато другите са на 18; ще има два React
-   instance-а и hook-овете гръмват.
+1. Extract `packages/shell-api` into its own repo or publish it as a
+   versioned npm package (e.g. `@yourorg/shell-api@1.0.0`).
+2. Each MFE repo carries its own `package.json`, `vite.config.ts`,
+   Dockerfile, CI/CD pipeline.
+3. The shell repo keeps just `apps/shell` and its configs; remote URLs
+   come from env (already the case).
+4. The shared deps in `federation({ shared: [...] })` — `react`,
+   `react-dom`, `react-router-dom`, `@tanstack/react-query` — become a
+   **versioned contract across repos**. One repo can't upgrade to React
+   19 while the others are on 18 — you'd get two React instances and
+   hooks would break.
 
-**Какво ще ти струва:**
+**What the split costs you:**
 
-- Контрактна дисциплина — `shell-api` става SemVer-нат пакет, breaking
-  change значи мажорна версия + координация с всички MFE репа.
-- Споделени версии (React и сем-ството му) трябва да се управляват като
-  cross-repo invariant. Renovate/Dependabot правила или scheduled
-  "version-bump party" дни.
-- Загубваш atomic refactor — преименуваш ли `MfeProps` в `shell-api`, става
-  в 4+ PR-а в 4+ репа, не в един commit.
+- Contract discipline. `shell-api` becomes a SemVer-versioned package;
+  a breaking change is a major version plus coordination across every
+  MFE repo.
+- Shared versions (React and its family) have to be managed as a
+  cross-repo invariant. Renovate/Dependabot policies, or scheduled
+  "version-bump party" days.
+- You lose atomic refactors. Renaming `MfeProps` in `shell-api` becomes
+  4+ PRs across 4+ repos instead of a single commit.
 
-## 2) В съществуващото монорепо — независим деплой и веднага в сила
+## 2) Independent per-service deploys from the current monorepo
 
-**Да, и това вече е така в production-режима.** Цялата `docker-compose.yml`
-е написана точно с тази цел — седем независими имиджа, всеки със своя
-жизнен цикъл:
+**Yes — and that's already the production-style model today.** The whole
+`docker-compose.yml` is written for exactly this: seven independent
+images, each with its own lifecycle:
 
-| Промяна | Какво се рестартира | Време до ефект |
+| Change | What gets recreated | Time to effect |
 |---|---|---|
-| `apps/shell/src/**` | нищо — HMR | ~1s |
-| `apps/mfe-X/src/**` | `--force-recreate mfe-X` (или `--dev` режим за watch+build) | 1-2s в `--dev`, 5-10s демо режим |
-| `bff/src/**` (един BFF) | `--build --force-recreate bff-X` | ~15s |
+| `apps/shell/src/**` | nothing — HMR | ~1s |
+| `apps/mfe-X/src/**` | `--force-recreate mfe-X` (or `--dev` mode for watch+build) | 1-2s in `--dev`, 5-10s in demo mode |
+| `bff/src/**` (one BFF) | `--build --force-recreate bff-X` | ~15s |
 | `bff/src/**` (host dev) | `./dev-bff.sh ops` — Gradle continuous rebuild | ~3s |
 
-Това вече работи в репото — виж таблицата в `CLAUDE.md` "Applying changes
-— what needs what" и `./start.sh --dev` / `./dev-bff.sh`. Federation плюс
-`vite preview` гарантират, че при рекреиране на един MFE контейнер шелът
-просто фетчва новия `remoteEntry.js` при следващото зареждане без рестарт
-на шела.
+This already works in the repo — see the `CLAUDE.md` table "Applying
+changes — what needs what" and `./start.sh --dev` / `./dev-bff.sh`.
+Federation plus `vite preview` mean that when you recreate one MFE
+container the shell simply fetches the new `remoteEntry.js` on the next
+load, with no shell restart.
 
-**Production вариант на същото:** всеки имидж зад своя deploy pipeline
-(GitHub Actions matrix per workspace, или separate Argo apps в Kubernetes).
-Pipeline-и тригерват се само ако `paths:` филтърът хитне
-(`frontend/apps/mfe-ops/**` → deploy mfe-ops). Шелът остава непроменен;
-cache busting на `remoteEntry.js` става с content hash или version query
-string.
+**The production form of the same idea:** each image behind its own
+deploy pipeline (a GitHub Actions matrix per workspace, or separate Argo
+apps in Kubernetes). Pipelines fire only when their `paths:` filter
+matches (`frontend/apps/mfe-ops/**` → deploy `mfe-ops`). The shell stays
+untouched; cache-busting on `remoteEntry.js` is done with a content hash
+or a version query string.
 
-## 3) Добре ли е да се отделят проектите в отделни репота?
+## 3) Is it a good idea to split the projects across separate repos?
 
-**Зависи от размера на екипа и темпото на промените.** Това е класически
-monorepo-vs-polyrepo tradeoff.
+**It depends on team size and rate of change.** This is the classic
+monorepo-vs-polyrepo trade-off.
 
-**Поли-репо има смисъл, когато:**
+**Poly-repo makes sense when:**
 
-- Различни екипи owner-стват различни MFE-та с минимално cross-team
-  координиране.
-- Cycle time на CI/CD пада значимо (по-малък lockfile, по-малък test set).
-- Compliance/security изисквания налагат различни access controls (напр.
-  payment екипът трябва да е изолиран).
-- Скоростта на промените в един MFE е драстично различна (mfe-admin прави
-  release веднъж в месец, mfe-client два пъти на ден).
+- Different teams own different MFEs with minimal cross-team
+  coordination.
+- CI/CD cycle time drops significantly (smaller lockfile, smaller test
+  set).
+- Compliance/security requirements demand different access controls
+  (e.g. the payments team has to stay isolated).
+- The change rate per MFE diverges drastically (`mfe-admin` releases
+  once a month, `mfe-client` twice a day).
 
-**Монорепото е по-добро, когато:**
+**A monorepo is better when:**
 
-- Един екип (или 2-3 близки) поддържа всичко.
-- Често правиш cross-cutting промени (`shell-api` контракт + всички MFE
-  едновременно).
-- Искаш atomic PR-и и един source of truth за версии.
-- Tooling екипът ти е малък — поддръжката на 7 CI pipeline-а вместо 1 е
-  реална тежест.
+- One team (or 2-3 closely-collaborating teams) owns everything.
+- Cross-cutting changes happen often (`shell-api` contract + all MFEs
+  in one go).
+- You want atomic PRs and a single source of truth for versions.
+- Your tooling team is small — running 7 CI pipelines instead of 1 is
+  a real maintenance load.
 
-**Конкретно за тази архитектура моята препоръка:** остани в монорепо
-докато екипите не са физически различни. Текущата структура (workspaces +
-per-service Dockerfile + per-service compose entry) вече ти дава 90% от
-ползите на поли-репо (независим деплой, изолиран failure domain) без data
-на поли-репо overhead. Когато на даден екип започне да му пречи, че чужд
-PR му счупва CI или чужд lockfile му bump-ва deps — тогава extract-ваш
-този MFE сам. Federation е специално създаден да позволи това
-**постепенно**, не като big-bang миграция.
+**My recommendation for this architecture specifically:** stay in the
+monorepo until the teams actually become physically separate. The
+current structure (workspaces + per-service Dockerfile + per-service
+compose entry) already gives you 90% of the poly-repo benefits
+(independent deploys, isolated failure domains) without the poly-repo
+overhead. When a team starts feeling the friction — someone else's PR
+breaks their CI, someone else's lockfile bumps their deps — extract
+*that* MFE alone. Federation was built to let this happen
+**incrementally**, not as a big-bang migration.
 
-## 4) Собствен домейн (billing.company.com, reporting.company.com, и т.н.)?
+## 4) Per-MFE subdomain (billing.company.com, reporting.company.com, …)?
 
-**Да, и това е архитектурно правилното за production.** Federation работи
-cross-origin от proba — CORS-ът вече е activated в `vite.config.ts`
-(`cors: true` в preview блока), а `allowedHosts` в шела е лесно за
-разширяване.
+**Yes — and it's the architecturally right move for production.**
+Federation works cross-origin by design — CORS is already enabled in
+`vite.config.ts` (`cors: true` in the preview block) and `allowedHosts`
+on the shell is easy to extend.
 
-**Аргументи "за":**
+**Arguments for:**
 
-- **Cache изолация** — `billing.company.com/assets/remoteEntry.js` cache-се
-  независимо от `reporting.company.com`. Различни CDN edges, различни TTL
-  стратегии.
-- **Независим scaling** — `billing` е trafic-heavy → отделен CDN/origin без
-  да touch-ваш `reporting`.
-- **Security boundary** — CSP можеш да го стегнеш per-domain. Compromise на
-  reporting subdomain не дава директен JS access до billing.
-- **Org structure mirror** — DNS-ът отразява собствеността (`team-billing`
-  owner-ства `billing.*`), което прави incident response по-лесен.
-- **Observability** — отделни metrics, logs, error budgets per domain.
-  Лесно се filter-ва в Grafana/Sentry по hostname.
+- **Cache isolation** — `billing.company.com/assets/remoteEntry.js`
+  caches independently of `reporting.company.com`. Different CDN edges,
+  different TTL strategies.
+- **Independent scaling** — `billing` is traffic-heavy → its own
+  CDN/origin without touching `reporting`.
+- **Security boundary** — CSP can be tightened per domain. A compromise
+  of the `reporting` subdomain doesn't give direct JS access to
+  `billing`.
+- **Org structure mirror** — DNS reflects ownership (`team-billing` owns
+  `billing.*`), which makes incident response easier.
+- **Observability** — separate metrics, logs, error budgets per domain.
+  Easy to filter by hostname in Grafana/Sentry.
 
-**Какво трябва да помислиш:**
+**Things to think about:**
 
-- **CORS + cookies** — ако MFE-тата ползват session cookies към своите
-  BFF-та през Shell-я, нужни са `SameSite=None; Secure` и точни
-  `Access-Control-Allow-Origin` listing. С Bearer токени (както е сега в
-  репото) проблемът отпада.
-- **SSO redirect URI-та** — Keycloak realm трябва да позволи всички
-  origin-и в `webOrigins` и `redirectUris` на `mfe-shell-client`. В
-  текущата конфигурация шелът е единственият OIDC consumer, така че се
-  добавя само shell домейнът; MFE-тата нямат собствен OIDC client.
-- **`shell-api` версии в production** — при cross-domain federation, ако
-  шелът е на v1.2 а billing MFE е bundled срещу `shell-api` v1.1, runtime
-  ще се счупи мълчаливо. Лекарство: версионирай контракта и валидирай при
-  mount (`host.apiVersion === '1.2'` check).
-- **Cross-origin federation peculiarity** — `import('billing/Mfe')` под
-  капака прави `<script>` инжекция; ако се хитне на
-  `Content-Security-Policy: script-src 'self'` ще се счупи. CSP трябва да
-  изброи всички MFE origin-и.
+- **CORS + cookies** — if MFEs talk to their own BFFs with session
+  cookies through the shell, you need `SameSite=None; Secure` and exact
+  `Access-Control-Allow-Origin` listings. With Bearer tokens (what the
+  repo does today) the problem goes away.
+- **SSO redirect URIs** — the Keycloak realm has to allow every origin
+  in the `webOrigins` and `redirectUris` of `mfe-shell-client`. In the
+  current setup the shell is the only OIDC consumer, so only the shell
+  domain needs to be added; MFEs don't have their own OIDC client.
+- **`shell-api` versions in production** — with cross-domain federation,
+  if the shell is on v1.2 but the billing MFE was bundled against
+  `shell-api` v1.1, things break silently at runtime. Cure: version the
+  contract and validate at mount (`host.apiVersion === '1.2'` check).
+- **Cross-origin federation peculiarity** — `import('billing/Mfe')`
+  internally injects a `<script>`; if a strict
+  `Content-Security-Policy: script-src 'self'` is in place it breaks.
+  The CSP has to list every MFE origin.
 
-**Препоръка:** да, направи го с поддомейни на същия root домейн
-(`*.company.com`), не с напълно различни домейни. Това ти позволява да
-споделяш wildcard SSL, да правиш cookie-based auth, ако някога потрябва, и
-опростява CSP-то. Идеалната топология:
+**Recommendation:** yes, do it — but with subdomains of the same root
+domain (`*.company.com`), not fully separate domains. That lets you
+share a wildcard SSL cert, gives you cookie-based auth if you ever need
+it, and simplifies the CSP. The ideal topology:
 
 ```
 app.company.com           — shell
@@ -160,13 +168,15 @@ api.reporting.company.com — reporting BFF
 auth.company.com          — Keycloak
 ```
 
-## Резюме
+## Summary
 
-- **Технически може и трите** — отделни репа, независим деплой в
-  монорепото, отделни домейни. Архитектурата от стартъ е федеративна.
-- **Започни с монорепо + независим деплой + поддомейни** — това вече го
-  имаш в кода. Поли-репо го прави когато имаш реален екип-bottleneck, не
-  на принцип.
-- **Версионирай `shell-api`** като първа стъпка към poly-repo бъдещето,
-  дори да не extract-ваш веднага. Това е критичното inflection point —
-  без версионен контракт, разделянето на репа е мъчително.
+- **All three are technically doable** — separate repos, independent
+  deploys from the monorepo, separate domains. The architecture has
+  been federated from the start.
+- **Start with monorepo + independent deploys + subdomains** — you
+  already have that in the code. Move to poly-repo only when you have a
+  real team-level bottleneck, not on principle.
+- **Version `shell-api`** as the first step toward a poly-repo future,
+  even if you don't extract anything immediately. That's the critical
+  inflection point — without a versioned contract, splitting repos is
+  painful.

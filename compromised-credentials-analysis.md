@@ -1,119 +1,122 @@
 # Compromised Credentials — What Happens to a BFF Call?
 
-Какво се случва, ако се направи call към BFF, но креденшълите са
-компрометирани. Минавам по слоевете отдолу нагоре — какво ще се случи с
-BFF call в всеки сценарий и какво в текущия код го лови (или не).
+What happens when a call hits a BFF but the credentials are compromised.
+Walking from the bottom up — what the BFF does to the request in each
+scenario, and what the current code catches (or doesn't).
 
-## Как BFF gate-ва call-а (baseline)
+## How the BFF gates a call (baseline)
 
-Всеки `/api/...` request към BFF минава през:
+Every `/api/...` request to a BFF goes through:
 
-1. **Bearer token extraction** — Micronaut security чете
+1. **Bearer-token extraction** — Micronaut security reads
    `Authorization: Bearer <jwt>`.
-2. **JWT signature** — валидиран срещу Keycloak JWKS
-   (`KEYCLOAK_AUTH_SERVER_URL`). Подменен/подписан с друг ключ → 401.
-3. **Issuer + `exp`** — `iss` трябва да съвпада с
+2. **JWT signature** — validated against the Keycloak JWKS
+   (`KEYCLOAK_AUTH_SERVER_URL`). Tampered / signed with a different key
+   → 401.
+3. **Issuer + `exp`** — `iss` has to match
    `http://localhost:8888/realms/demo-realm`; expired → 401.
-4. **Role gate** — `APP_ALLOWED_ROLES` (env per BFF) се сравнява срещу
-   ролите от JWT-то. Не съвпада → 403.
-5. **Endpoint logic** — едва тогава `UserController` се изпълнява.
+4. **Role gate** — `APP_ALLOWED_ROLES` (per-BFF env) is checked against
+   the roles in the JWT. Mismatch → 403.
+5. **Endpoint logic** — only now does `UserController` run.
 
-Това е "fail-closed" — всеки от 1-4 връща грешка преди да се stigne до
-handler-а.
+The chain is fail-closed — any of 1-4 rejects the request before the
+handler sees it.
 
-## Сценарии за "компроментирани креденшъли"
+## Scenarios for "compromised credentials"
 
-### A) Username + парола изтекли (без 2FA данни)
+### A) Username + password leaked (no 2FA material)
 
-- Login към Keycloak ще мине стъпка 1 (forms), но **email OTP блокира**
-  finalize-ването.
-- Attacker трябва **също** да контролира inbox-а на user-а **или** да
-  притежава валиден `KC_DEMO_OTP_TRUSTED` cookie.
-- BFF никога не вижда такъв request — Keycloak не издава access token.
-- **Колко добре сме защитени:** добре, при условие че email-ът не е
-  компрометиран и trust cookie window-ът не е активен.
+- Login to Keycloak will get through step 1 (forms), but **email OTP
+  blocks** the finalize.
+- The attacker also needs **either** control of the user's inbox **or**
+  a valid `KC_DEMO_OTP_TRUSTED` cookie.
+- The BFF never sees such a request — Keycloak doesn't issue an access
+  token.
+- **How well we're protected:** well, provided the email isn't also
+  compromised and the trust-cookie window isn't active.
 
-### B) Валиден access token (JWT) изтекъл
+### B) Valid access token (JWT) leaked
 
-- Attacker може да replay-ва токена до `exp` (default
+- The attacker can replay the token until `exp` (default
   `accessTokenLifespan` ≈ 5 min).
-- BFF ще приеме всеки call — signature е валиден, ролите са в payload-а.
-- Може да удари **само BFF-ите, които ролите в токена му разрешават**:
-  `client`-only token → 403 от `bff-ops`/`bff-admin`.
-- **Никакъв допълнителен gate** — няма IP check, няма device binding
-  (DPoP), няма audience check beyond `iss`. Откраднатият токен работи от
-  всеки browser, всяка мрежа.
-- **Колко добре сме защитени:** слабо. Single point of failure — кратка
-  валидност е единствената бариера.
+- The BFF accepts every call — the signature is valid, the roles are
+  in the payload.
+- It can only hit **the BFFs whose role gate the token's roles
+  satisfy**: a `client`-only token → 403 from `bff-ops`/`bff-admin`.
+- **No further gate** — no IP check, no device binding (DPoP), no
+  audience check beyond `iss`. A stolen token works from any browser,
+  any network.
+- **How well we're protected:** weakly. Short lifetime is the only
+  barrier.
 
-### C) Refresh token изтекъл
+### C) Refresh token leaked
 
-- По-лошо от B — attacker може да си minta нови access токени за целия
-  refresh window (по подразбиране доста по-дълъг, дни).
-- Keycloak refresh token rotation **не е enable-нат** в
-  `realm-export.json` (трябва проверка), което означава, че същият refresh
-  token може да се ползва многократно.
-- **Колко добре сме защитени:** слабо. Тук би помогнало refresh token
-  rotation + reuse detection (Keycloak ги поддържа, но не са on by
-  default).
+- Worse than B — the attacker can mint new access tokens for the entire
+  refresh window (which by default is much longer, days).
+- Keycloak refresh-token rotation is **not enabled** in
+  `realm-export.json` (needs verification), so the same refresh token
+  can be reused.
+- **How well we're protected:** weakly. Refresh-token rotation + reuse
+  detection would help here (Keycloak supports both, but they're not on
+  by default).
 
-### D) Keycloak SSO cookie (`KEYCLOAK_SESSION` / `KEYCLOAK_IDENTITY`) изтекъл
+### D) Keycloak SSO cookie (`KEYCLOAK_SESSION` / `KEYCLOAK_IDENTITY`) leaked
 
-- Attacker може да отиде на `/auth` и да получи нов auth-code без да
-  въвежда парола → нови tokens.
-- Cookie-то е `HttpOnly` + `Secure` в production правилна настройка, в
-  дев е HTTP так че може да се сниф-не.
-- **Колко добре сме защитени:** в demo (HTTP) — слабо. Production-side:
-  добре, ако HTTPS навсякъде.
+- The attacker can hit `/auth` and get a fresh auth code without
+  entering a password → new tokens.
+- The cookie is `HttpOnly` + `Secure` in a proper production setup; in
+  dev it's HTTP, so it's sniffable.
+- **How well we're protected:** in the demo (HTTP) — weakly. In
+  production with HTTPS everywhere — well.
 
-### E) OTP trust cookie (`KC_DEMO_OTP_TRUSTED`) изтекъл
+### E) OTP trust cookie (`KC_DEMO_OTP_TRUSTED`) leaked
 
-- Skip-ва се email OTP стъпката. Комбинирано със сценарий A → пълен
-  login.
-- Cookie е `HttpOnly` + HMAC-подписан + realm-scoped + `SameSite=Lax`.
-- Lax означава, че **не се изпраща** при cross-origin POST/iframe — а
-  Keycloak login-ът е redirect (top-level navigation), което Lax го
-  пуска. Така че при targeted phishing може да се ползва.
-- **Колко добре сме защитени:** средно. Keycloak restart инвалидира
-  всички trust cookies (HMAC ключът е process-local), което е грубо но
-  ефективно "kill switch".
+- Skips the email OTP step. Combined with scenario A → full login.
+- The cookie is `HttpOnly` + HMAC-signed + realm-scoped + `SameSite=Lax`.
+- `Lax` means it's **not sent** on cross-origin POST/iframe — but the
+  Keycloak login is a redirect (top-level navigation), which `Lax`
+  allows. So it's usable for targeted phishing.
+- **How well we're protected:** moderate. A Keycloak restart
+  invalidates every outstanding trust cookie (the HMAC key is
+  process-local), which is a crude but effective kill switch.
 
-### F) `user-service` / SPI компрометирани (по-екзотично)
+### F) `user-service` / SPI compromised (more exotic)
 
-- `UserServiceClient` е **fail-closed** — всеки non-200 връща `false` за
-  password verify и `null` за lookup. Така ако нападателят свали
-  `user-service`, нищо не може да login-не.
-- Но ако нападателят **контролира** `user-service`, той може да върне
-  `true` за всеки парола → пълен Keycloak login.
-- Mitigation в текущия код: никакъв. `KEYCLOAK_AUTH_SERVER_URL` сочи към
-  `user-service:8080` в compose мрежата, plain HTTP, без auth между SPI
-  и REST-а.
+- `UserServiceClient` is **fail-closed** — any non-200 returns `false`
+  from password verify and `null` from lookups. If the attacker takes
+  `user-service` down, nothing can log in.
+- But if the attacker **controls** `user-service`, they can return
+  `true` for any password → full Keycloak login.
+- Mitigation in the current code: none. `KEYCLOAK_AUTH_SERVER_URL`
+  points at `user-service:8080` over the compose network, plain HTTP,
+  no auth between the SPI and the REST service.
 
-## Какво **липсва** и би трябвало да се добави за prod
+## What's **missing** and would need to be added for production
 
-| Защита | Сега | За prod |
+| Defence | Today | For production |
 |---|---|---|
-| HTTPS навсякъде | не (dev HTTP) | задължително |
-| Token binding (DPoP / mTLS) | няма | препоръчително |
-| Audience check на BFF | вероятно не (трябва проверка в Micronaut config) | задължително |
-| Refresh token rotation + reuse detection | не enable-нат | задължително |
-| Кратък `accessTokenLifespan` (≤ 5 min) | default | OK |
-| Rate limiting на `/auth` и BFF | няма | задължително |
-| Anomaly detection (impossible travel, нов device) | няма | за по-висок tier |
-| SPI ↔ user-service auth (mTLS или shared secret) | няма | задължително |
-| CSP + Subresource Integrity за federation chunks | няма | препоръчително |
-| `keycloak-js` token storage в memory only | да | OK (но XSS все още опасен) |
+| HTTPS everywhere | no (dev HTTP) | required |
+| Token binding (DPoP / mTLS) | none | recommended |
+| Audience check on the BFF | likely no (verify in Micronaut config) | required |
+| Refresh-token rotation + reuse detection | not enabled | required |
+| Short `accessTokenLifespan` (≤ 5 min) | default | OK |
+| Rate limiting on `/auth` and the BFFs | none | required |
+| Anomaly detection (impossible travel, new device) | none | for higher tiers |
+| SPI ↔ user-service auth (mTLS or shared secret) | none | required |
+| CSP + Subresource Integrity for federation chunks | none | recommended |
+| `keycloak-js` token storage in memory only | yes | OK (XSS is still a risk) |
 
-## Кратък отговор за "ако BFF получи compromised call"
+## Short answer for "what if the BFF receives a compromised call?"
 
-- Подписан, неизтекъл, с правилните роли → **BFF ще го обслужи нормално**.
-  Той вижда валиден JWT и няма как да различи "истински user" от
-  "attacker с откраднат токен".
-- Невалиден подпис / expired / грешна роля → **401 / 403** автоматично.
-- Token подписан от чужд IdP / друг realm → **401** (issuer mismatch).
-- Token с роля `client` срещу `bff-admin` → **403**.
+- Properly signed, unexpired, with the right roles → **the BFF serves
+  it normally.** It sees a valid JWT and has no way to tell "real user"
+  from "attacker with a stolen token."
+- Invalid signature / expired / wrong role → **401 / 403** automatically.
+- Token signed by a foreign IdP / different realm → **401** (issuer
+  mismatch).
+- Token with role `client` against `bff-admin` → **403**.
 
-Това е по същество модел на "bearer токен е носител на доверие" —
-стандартното OIDC поведение. По-силна защита изисква token binding
-(DPoP) или mTLS, които не са в обхвата на демото. Подробният security
-audit и какво трябва за prod е в [`LOGIN.md`](./LOGIN.md).
+This is the standard "bearer token is a bearer of trust" model — the
+default OIDC behaviour. Stronger protection requires token binding
+(DPoP) or mTLS, which are out of scope for the demo. The full security
+audit and the production checklist live in [`LOGIN.md`](./LOGIN.md).
