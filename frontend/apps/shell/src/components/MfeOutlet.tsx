@@ -3,9 +3,11 @@ import type { MfeKey, ThemeKey, MfeComponent } from 'shell-api';
 import { RoleGate } from './RoleGate';
 import { useShellHost } from '../auth/useShellHost';
 
-const MfeClient = lazy(() => import('mfe-client')) as unknown as MfeComponent;
-const MfeOps = lazy(() => import('mfe-ops')) as unknown as MfeComponent;
-const MfeAdmin = lazy(() => import('mfe-admin')) as unknown as MfeComponent;
+// Module-federation remotes — the federation plugin rewrites these imports to
+// runtime fetches of remoteEntry.js from each MFE container.
+const MfeClient = lazy(() => import('mfeClient/Mfe')) as unknown as MfeComponent;
+const MfeOps = lazy(() => import('mfeOps/Mfe')) as unknown as MfeComponent;
+const MfeAdmin = lazy(() => import('mfeAdmin/Mfe')) as unknown as MfeComponent;
 
 const MFE_THEME: Record<MfeKey, ThemeKey> = {
   client: 'a',

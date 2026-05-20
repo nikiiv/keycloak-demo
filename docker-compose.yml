@@ -1,8 +1,38 @@
 version: "3.8"
 
-# One Vite + React SPA (the "shell") signs the user in once and lazy-loads
-# three role-gated microfrontends (client/ops/admin) from the same monorepo.
-# The single BFF serves /api/whoami so the shell knows which MFEs to mount.
+# Microfrontend topology. The shell at :5173 signs users in once against
+# Keycloak and lazy-loads three independently-deployed MFEs through module
+# federation; each MFE is its own container and pairs with its own BFF.
+#
+#   browser → shell (5173)
+#                ├─ fetches mfe-client (5181) / mfe-ops (5182) / mfe-admin (5183) remoteEntry.js
+#                └─ proxies /api/{whoami,client/*,ops/*,admin/*} to the matching BFF container
+#
+#   bff-client (8081, no role gate)   ← /api/whoami + /api/client/*
+#   bff-ops    (8082, user|admin)     ← /api/ops/*
+#   bff-admin  (8083, admin)          ← /api/admin/*
+
+x-mfe-common: &mfe-common
+  image: node:20-alpine
+  working_dir: /workspace
+  volumes:
+    - ./frontend:/workspace
+    - /workspace/node_modules
+  networks:
+    - keycloak-network
+  depends_on:
+    keycloak:
+      condition: service_healthy
+
+x-bff-common: &bff-common
+  build:
+    context: ./bff
+  image: keycloak-demo-bff:latest
+  networks:
+    - keycloak-network
+  depends_on:
+    keycloak:
+      condition: service_healthy
 
 services:
   postgres:
@@ -81,22 +111,15 @@ services:
       retries: 20
       start_period: 20s
 
-  # MFE shell — one Vite dev server serves the workspace root, runs the `shell`
-  # workspace's dev script, which lazy-imports the mfe-* workspace packages on
-  # demand. `npm install` here installs the whole workspace and creates the
-  # symlinks for mfe-client / mfe-ops / mfe-admin / shell-api.
+  # ---- frontend: shell + three MFE containers --------------------------------
+  # Each Vite container shares ./frontend so it can `npm install` the whole
+  # workspace once and resolve shell-api / inter-package symlinks. Each MFE
+  # builds and previews its own dist (federation expose requires a build); the
+  # shell stays in dev mode so the /api proxy and HMR for shell code work.
+
   shell:
-    image: node:20-alpine
-    working_dir: /workspace
+    <<: *mfe-common
     command: sh -c "npm install && npm run -w shell dev -- --host 0.0.0.0"
-    volumes:
-      - ./frontend:/workspace
-      - /workspace/node_modules
-    networks:
-      - keycloak-network
-    depends_on:
-      keycloak:
-        condition: service_healthy
     ports:
       - "5173:5173"
     environment:
@@ -105,22 +128,69 @@ services:
       VITE_APP_NAME: "Demo Shell"
       VITE_APP_TITLE: "Microfrontend SSO Demo"
       VITE_APP_THEME: "a"
-      BFF_URL: http://bff:8080
+      # Federation remote URLs — embedded in the shell bundle, must be
+      # browser-reachable (so localhost, not the in-compose hostname).
+      VITE_MFE_CLIENT_URL: http://localhost:5181
+      VITE_MFE_OPS_URL: http://localhost:5182
+      VITE_MFE_ADMIN_URL: http://localhost:5183
+      # BFF URLs are used by the Vite proxy on the shell container itself,
+      # so they're in-network hostnames.
+      BFF_SHELL_URL: http://bff-client:8080
+      BFF_CLIENT_URL: http://bff-client:8080
+      BFF_OPS_URL: http://bff-ops:8080
+      BFF_ADMIN_URL: http://bff-admin:8080
 
-  bff:
-    build:
-      context: ./bff
-    image: keycloak-demo-bff:latest
-    networks:
-      - keycloak-network
-    depends_on:
-      keycloak:
-        condition: service_healthy
+  mfe-client:
+    <<: *mfe-common
+    command: sh -c "npm install && npm run -w mfe-client build && npm run -w mfe-client preview"
+    ports:
+      - "5181:5181"
+
+  mfe-ops:
+    <<: *mfe-common
+    command: sh -c "npm install && npm run -w mfe-ops build && npm run -w mfe-ops preview"
+    ports:
+      - "5182:5182"
+
+  mfe-admin:
+    <<: *mfe-common
+    command: sh -c "npm install && npm run -w mfe-admin build && npm run -w mfe-admin preview"
+    ports:
+      - "5183:5183"
+
+  # ---- backend: one BFF per MFE ----------------------------------------------
+  # Same image, different config. APP_ALLOWED_ROLES is what gates /api/user;
+  # /api/whoami is unconditional (the shell calls it through bff-client).
+
+  bff-client:
+    <<: *bff-common
     ports:
       - "8081:8080"
     environment:
-      MICRONAUT_APPLICATION_NAME: bff
-      APP_SOURCE: bff
+      MICRONAUT_APPLICATION_NAME: bff-client
+      APP_SOURCE: bff-client
+      CORS_ORIGIN: http://localhost:5173
+      KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
+
+  bff-ops:
+    <<: *bff-common
+    ports:
+      - "8082:8080"
+    environment:
+      MICRONAUT_APPLICATION_NAME: bff-ops
+      APP_SOURCE: bff-ops
+      APP_ALLOWED_ROLES: "user,admin"
+      CORS_ORIGIN: http://localhost:5173
+      KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
+
+  bff-admin:
+    <<: *bff-common
+    ports:
+      - "8083:8080"
+    environment:
+      MICRONAUT_APPLICATION_NAME: bff-admin
+      APP_SOURCE: bff-admin
+      APP_ALLOWED_ROLES: "admin"
       CORS_ORIGIN: http://localhost:5173
       KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
 

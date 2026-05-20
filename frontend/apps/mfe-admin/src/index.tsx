@@ -1,9 +1,48 @@
 import { useState, type FormEvent } from 'react';
-import type { MfeComponent } from 'shell-api';
+import type { MfeComponent, ShellHost } from 'shell-api';
 
 const DEMO_SUBMITTED = 'Submitted — demo mode, nothing was sent.';
 
-const Mfe: MfeComponent = () => {
+function BffStatus({ host }: { host: ShellHost }) {
+  const [result, setResult] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const ping = async () => {
+    setBusy(true);
+    try {
+      const token = await host.auth.getToken();
+      const res = await fetch('/api/admin/user', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      const body = await res.json().catch(() => null);
+      setResult(`HTTP ${res.status} from ${body?.source ?? '(no source)'}`);
+    } catch (e: any) {
+      setResult(`error: ${e?.message ?? String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="card">
+      <h3>BFF connectivity</h3>
+      <p className="section-body">
+        This MFE owns its own backend at <code>/api/admin/*</code> — the shell strips the
+        prefix and forwards to the <code>bff-admin</code> container.
+      </p>
+      <button onClick={ping} disabled={busy}>
+        {busy ? 'Pinging…' : 'Ping my BFF'}
+      </button>
+      {result && (
+        <p className="section-body" style={{ marginTop: '0.5rem' }}>
+          <code>{result}</code>
+        </p>
+      )}
+    </section>
+  );
+}
+
+const Mfe: MfeComponent = ({ host }) => {
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [emergencyNotice, setEmergencyNotice] = useState<string | null>(null);
 
@@ -78,6 +117,8 @@ const Mfe: MfeComponent = () => {
             </form>
           </div>
         </section>
+
+        <BffStatus host={host} />
 
         <section className="card card-danger">
           <h3>Emergency actions</h3>
