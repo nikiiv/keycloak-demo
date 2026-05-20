@@ -1,29 +1,49 @@
 import { Link } from 'react-router-dom';
+import type { MfeKey } from 'shell-api';
 import { useAuth } from '../auth/AuthProvider';
-import { useBffUser, useKeycloakProfile } from '../api/queries';
-import { APP_NAME, COPY } from '../theme';
+import { useKeycloakProfile, useWhoAmI } from '../api/queries';
+import { APP_NAME, SHELL_BRAND_MARK, SHELL_NAV_SUB } from '../theme';
+
+const MFE_LABEL: Record<MfeKey, string> = {
+  client: 'Client',
+  ops: 'Ops',
+  admin: 'Admin'
+};
+
+const MFE_PATH: Record<MfeKey, string> = {
+  client: '/client',
+  ops: '/ops',
+  admin: '/admin'
+};
 
 export function Nav() {
   const { authenticated, logout } = useAuth();
   const profile = useKeycloakProfile(authenticated);
-  const bff = useBffUser(authenticated);
+  const whoami = useWhoAmI(authenticated);
 
-  const bffOk = bff.data?.ok ?? true;
-  const blockReason =
-    (bff.data?.body && (bff.data.body as any).message) ?? 'Not authorized for this app.';
-
-  const workLink = bffOk ? (
-    <Link to="/work">Work</Link>
-  ) : (
-    <span className="nav-disabled" aria-disabled="true" title={`Not available — ${blockReason}`}>
-      Work
-    </span>
-  );
+  const allowed = whoami.data?.allowedMfes ?? [];
+  const allMfes: MfeKey[] = ['client', 'ops', 'admin'];
 
   return (
     <nav>
       <Link to="/">Home</Link>
-      {workLink}
+      {allMfes.map((m) => {
+        const isAllowed = !authenticated || allowed.includes(m);
+        return isAllowed ? (
+          <Link key={m} to={MFE_PATH[m]}>
+            {MFE_LABEL[m]}
+          </Link>
+        ) : (
+          <span
+            key={m}
+            className="nav-disabled"
+            aria-disabled="true"
+            title={`Not available — your roles don't grant access to ${MFE_LABEL[m]}.`}
+          >
+            {MFE_LABEL[m]}
+          </span>
+        );
+      })}
       <Link to="/protected">Protected</Link>
       <Link to="/profile">Profile</Link>
       {authenticated && (
@@ -38,10 +58,10 @@ export function Nav() {
         </div>
       )}
       <div className="nav-brand">
-        <span className="nav-brand-mark" dangerouslySetInnerHTML={{ __html: COPY.brandMark }} />
+        <span className="nav-brand-mark" dangerouslySetInnerHTML={{ __html: SHELL_BRAND_MARK }} />
         <span className="nav-brand-text">
           {APP_NAME}
-          <span className="nav-brand-sub">{COPY.navSub}</span>
+          <span className="nav-brand-sub">{SHELL_NAV_SUB}</span>
         </span>
       </div>
     </nav>

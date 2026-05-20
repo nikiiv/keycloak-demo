@@ -51,6 +51,39 @@
   "users": [],
   "clients": [
     {
+      "clientId": "mfe-shell-client",
+      "enabled": true,
+      "name": "MFE Shell Client",
+      "description": "Single OIDC client for the microfrontend shell (replaces app1/2/3-client).",
+      "publicClient": true,
+      "bearerOnly": false,
+      "webOrigins": ["http://localhost:5173", "http://127.0.0.1:5173"],
+      "redirectUris": ["http://localhost:5173/*", "http://127.0.0.1:5173/*"],
+      "baseUrl": "http://localhost:5173/",
+      "rootUrl": "http://localhost:5173",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": false,
+      "protocolMappers": [
+        {
+          "name": "realm-roles-flat",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
       "clientId": "app1-client",
       "enabled": true,
       "name": "App1 Client",

@@ -6,7 +6,9 @@ Survival notes for working in this repo. The **README.md** is the user-facing do
 
 ## What this is
 
-A Keycloak SSO demo: one Vite SPA + one Micronaut BFF, launched three times (App A/B/C) as independent OIDC clients. End-user identity lives in a **standalone Micronaut REST service** (`user-service/`); the Keycloak User Storage SPI in `keycloak-provider/` is a thin REST client of it. Keycloak's Postgres only holds realm metadata and sessions.
+A Keycloak SSO demo with a **microfrontend (MFE) front end**: one React shell signs the user in once against a single OIDC client (`mfe-shell-client`) and lazy-loads three role-gated MFE workspaces (`mfe-client`, `mfe-ops`, `mfe-admin`) from the same npm-workspaces monorepo under `frontend/`. The shell shares one `QueryClient` and one `AuthProvider` across all MFEs.
+
+End-user identity lives in a **standalone Micronaut REST service** (`user-service/`); the Keycloak User Storage SPI in `keycloak-provider/` is a thin REST client of it. Keycloak's Postgres only holds realm metadata and sessions.
 
 The REST contract between the SPI and `user-service` is defined OpenAPI-first in `user-api/openapi.yaml`. Both sides — the SPI's HTTP client and the user-service's controller/model stubs — are **generated** from that one file at build time. Edits to a generated class are blown away on the next build; change the spec instead.
 
@@ -20,23 +22,28 @@ Three demo users (hardcoded in `user-service/src/main/java/demo/userservice/User
 
 After username/password, Keycloak requires a 6-digit email OTP (see "2FA gotchas" below).
 
-Per-app role model. The BFF is the source of truth: each bff reads `APP_ALLOWED_ROLES` (comma-separated). On `/api/user` the BFF either returns 200 (user holds at least one allowed role, or the list is empty) or 403 with `reason: "not_allowed"` and `{allowedRoles, yourRoles, message}`. The frontend does not have its own role env vars — it reads the rule off the BFF response and mirrors the state (banner + greyed Work nav).
+Role gating lives in the BFF (source of truth). `GET /api/whoami` returns `{ username, email, roles, allowedMfes }`; the shell's `useWhoAmI` query feeds this into `<RoleGate>` (refuses to mount unauthorized MFEs) and `<Nav>` (greys out their links). The legacy `/api/user` endpoint kept its `APP_ALLOWED_ROLES` enforcement for the role-matrix curl script below, but the MFE shell no longer consumes it.
 
-| User / App | A (`APP_ALLOWED_ROLES` unset) | B (`user,admin`) | C (`admin`) |
+Role → MFE mapping in `bff/UserController.java#whoami`:
+
+| User | client | ops | admin |
 |---|---|---|---|
-| democlient (`client`) | ✓ 200 | ✗ 403 | ✗ 403 |
-| demouser (`user`) | ✓ 200 | ✓ 200 | ✗ 403 |
-| demoadmin (`admin, user`) | ✓ 200 | ✓ 200 | ✓ 200 |
+| democlient (`client`) | ✓ | ✗ | ✗ |
+| demouser (`user`) | ✓ | ✓ | ✗ |
+| demoadmin (`admin, user`) | ✓ | ✓ | ✓ |
 
 ## Layout and where to make common changes
 
-- `frontend/` — shared SPA source. `src/App.ts` has the banner + Protected-panel rendering; `src/User.ts` wraps Keycloak/BFF calls; `index.html` has all CSS.
-- `bff/` — shared Micronaut backend. `src/main/java/demo/UserController.java` has the role checks; `src/main/resources/application.yml` maps env vars to `app.*` config. `bff/Dockerfile` builds a single fat-jar image (`keycloak-demo-bff:latest`) shared by all three `bff-*` services.
+- `frontend/` — **npm workspaces monorepo**. Root `package.json` declares `apps/*` and `packages/*`. There is no longer a single shared SPA; each workspace is its own npm package, source-linked.
+  - `apps/shell/` — the React + React Router + TanStack Query shell. Owns `keycloak-js` (`auth/AuthProvider.tsx` — singleton-gated `keycloak.init()`), the `QueryClient`, the layout (`components/Layout.tsx` + `Nav.tsx`), the lazy MFE router (`components/MfeOutlet.tsx`), the `RoleGate`, the `useWhoAmI` hook (`api/queries.ts`), and the shared `styles.css`.
+  - `apps/mfe-client/`, `apps/mfe-ops/`, `apps/mfe-admin/` — three default-exported `MfeComponent`s. Each wraps its content in `<div data-theme="a|b|c">` so the shell's CSS variables resolve to that MFE's palette. None import `keycloak-js` directly; they receive a `ShellHost` prop from the shell when needed.
+  - `packages/shell-api/` — TypeScript-only contract package. Exports `ShellHost`, `ShellAuth`, `MfeComponent`, `MfeProps`, `MfeKey`, `WhoAmI`. **The single source of truth for the shell ↔ MFE wire format.**
+- `bff/` — shared Micronaut backend. `src/main/java/demo/UserController.java` has both endpoints: `/api/whoami` (MFE shell) computes `allowedMfes` from JWT roles in-memory; `/api/user` (legacy) keeps `APP_ALLOWED_ROLES`. One fat-jar image (`keycloak-demo-bff:latest`) used by the single `bff` service.
 - `user-service/` — standalone Micronaut REST service that owns the demo users. `src/main/java/demo/userservice/UserController.java` has the hardcoded `USERS` map + password verify; it extends `AbstractUsersController`, which is **generated** under `build/generated/openapi/` from the contract. Fat-jar image `keycloak-demo-user-service:latest`.
 - `user-api/openapi.yaml` — the single hand-written description of the SPI ↔ user-service wire format. Both `keycloak-provider/` (client) and `user-service/` (server stubs) regenerate from this on every build.
 - `keycloak-provider/` — standalone Gradle project shipping **two** SPIs in one jar: the User Storage provider (`DemoUserStorageProvider` + `UserServiceClient` + adapter) and the Email-OTP Authenticator (`EmailOtpAuthenticator` + factory + `ResendClient`). Two service files under `src/main/resources/META-INF/services/` register them. The OTP form lives in `src/main/resources/theme-resources/templates/email-otp.ftl`. The generated REST client (`com.example.keycloak.client.*`) lives only in `build/`; never edit it. To add or modify a user, see `user-service/` above — **not** this module.
 - `keycloak/realm-export.json` — realm seed: clients, realm roles, default-role composite, SPI component registration, `demo-browser` flow with the OTP step.
-- `docker-compose.yml` — parameterizes every app-specific value via env vars. Three web services (5173/5174/5175), three BFFs (8081/8082/8083), plus Keycloak (8888), `user-service` (8090), and Postgres.
+- `docker-compose.yml` — `shell` (5173), `bff` (8081), Keycloak (8888), `user-service` (8090), Postgres. The shell container mounts `./frontend` to `/workspace` and runs `npm install && npm run -w shell dev` so the workspace symlinks are wired before Vite starts; Vite resolves `import 'mfe-client'` through `apps/shell/node_modules/mfe-client` → workspace link → `apps/mfe-client/src/index.tsx`.
 - `Dockerfile.keycloak` — multi-stage: stage 1 runs `gradle shadowJar` on `keycloak-provider/` (which first generates the REST client from `user-api/openapi.yaml`, then fat-jars it with relocated Jackson). Stage 2 copies the jar into `/opt/keycloak/providers/` and runs `kc.sh build`. Build context is the **repo root** so the build can read `user-api/`. SPI changes need a full image rebuild, not just a container restart.
 - `start.sh` — the canonical entrypoint. Auto-detects docker or podman, sources `.envrc`, tears the stack down (preserving volumes), rebuilds all three custom images, and brings everything back up. On the podman path it explicitly waits for postgres + user-service + keycloak healthchecks before starting the rest, because `podman compose` ignores `depends_on: condition: service_healthy`. Override engine selection with `CONTAINER_ENGINE=docker|podman`.
 
@@ -87,8 +94,9 @@ If you're using `podman compose` directly, two things to know:
 
 | Change | Minimum action |
 |---|---|
-| Frontend (SPA) source | nothing — Vite HMR picks it up |
-| BFF source | `podman compose up -d --build --force-recreate bff-a bff-b bff-c` — one build, three recreates (they share the image). `--force-recreate` is the belt-and-suspenders bit: without it, some compose implementations don't notice the image ID moved and leave the old containers running. |
+| Frontend (shell or any MFE) source | nothing — Vite HMR picks it up. Each MFE bundles separately because the shell `lazy()`-imports them; HMR boundaries land on the MFE root component. |
+| New workspace dep / new MFE | restart the shell container so `npm install` re-runs in `/workspace`: `podman compose up -d --force-recreate shell`. The bind mount keeps source live; only the install step is gated. |
+| BFF source | `podman compose up -d --build --force-recreate bff` — one build, one container. `--force-recreate` is the belt-and-suspenders bit: without it, some compose implementations don't notice the image ID moved and leave the old container running. |
 | `user-service` source (incl. adding/removing demo users) | `podman compose up -d --build --force-recreate user-service` — only this image. Keycloak does not need a rebuild because the SPI didn't change. |
 | `user-api/openapi.yaml` (contract edit) | rebuild **both** sides: `podman compose up -d --build --force-recreate user-service` **and** `podman compose build keycloak && podman compose up -d --force-recreate keycloak`. Both modules regenerate their half of the contract on the next `gradle` invocation. |
 | Env var on a service | `podman compose up -d --force-recreate <service>` |
@@ -102,20 +110,25 @@ If you're using `podman compose` directly, two things to know:
 ## Testing the role matrix quickly
 
 ```bash
-# Grab tokens for all three users, then poll each BFF
+# Grab tokens for all three users, then poll /api/whoami on the BFF.
 for u in democlient demouser demoadmin; do
   T=$(curl -s -X POST "http://localhost:8888/realms/demo-realm/protocol/openid-connect/token" \
-    -d "client_id=app1-client&grant_type=password&username=$u&password=123" \
+    -d "client_id=mfe-shell-client&grant_type=password&username=$u&password=123" \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
-  for app in "A:8081" "B:8082" "C:8083"; do
-    p="${app##*:}"; n="${app%%:*}"
-    code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $T" "http://localhost:$p/api/user")
-    echo "$u -> App $n : $code"
-  done
+  curl -s -H "Authorization: Bearer $T" "http://localhost:8081/api/whoami" \
+    | python3 -c 'import json,sys; d=json.load(sys.stdin); print(f"{d[\"username\"]:>11s} -> {d[\"allowedMfes\"]}")'
 done
 ```
 
-Expected: the matrix above. Any deviation means either the BFF env var isn't set or the token roles aren't what you think — decode the JWT payload with `echo "$T" | cut -d. -f2 | base64 -d` to check. Reminder: this uses direct-grant, so the OTP step is **not** exercised.
+Expected:
+
+```
+ democlient -> ['client']
+  demouser  -> ['client', 'ops']
+ demoadmin  -> ['client', 'ops', 'admin']
+```
+
+Any deviation means either the role → MFE mapping in `bff/UserController.java#whoami` changed or the token roles aren't what you think — decode the JWT payload with `echo "$T" | cut -d. -f2 | base64 -d` to check. Reminder: this uses direct-grant, so the OTP step is **not** exercised.
 
 You can also poke `user-service` directly on port 8090 — it's exposed for inspection (`GET /users/{username}`, `GET /users?email=...`, `POST /users/verify-credentials`, `GET /health`). Inside the compose network Keycloak reaches it as `http://user-service:8080`.
 

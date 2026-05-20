@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import type { WhoAmI } from 'shell-api';
 import { keycloak } from '../auth/keycloak';
 import { fetchBff, type BffResult } from './client';
 
@@ -35,5 +36,17 @@ export function useBffUser(enabled: boolean) {
     queryKey: ['bff', 'user'],
     enabled,
     queryFn: () => fetchBff('/api/user')
+  });
+}
+
+export function useWhoAmI(enabled: boolean) {
+  return useQuery<WhoAmI | null>({
+    queryKey: ['bff', 'whoami'],
+    enabled,
+    queryFn: async () => {
+      const r = await fetchBff('/api/whoami');
+      if (!r.ok) return null;
+      return r.body as WhoAmI;
+    }
   });
 }
