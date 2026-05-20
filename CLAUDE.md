@@ -62,6 +62,22 @@ Role → MFE mapping in `bff/UserController.java#whoami`:
 - **Build context for the Keycloak and user-service images is the repo root**, not their own subdirectories. Both Dockerfiles read `user-api/openapi.yaml` as a sibling of their module, so the compose `build.context` is `.` with an explicit `dockerfile:` path. Don't rewrite these to use a subdirectory context — generation will fail to find the spec.
 - **Keycloak admin API is on port 8888 (not 8080).** Get a token at `/realms/master/protocol/openid-connect/token` with `client_id=admin-cli&grant_type=password&username=admin&password=admin`. Admin endpoints live under `/admin/realms/demo-realm/...`.
 - **`keycloak-js` must be ≥ 26.x.** Older versions validate a `nonce` claim that Keycloak 26 no longer emits.
+- **Wiping `dist/` on the host kills the running MFE.** Each MFE container `vite preview`-serves `/workspace/apps/mfe-X/dist`, which is bind-mounted from `./frontend/apps/mfe-X/dist`. `rm -rf` on the host removes the directory the preview server is serving from, so the running container starts replying 404 even though it logs "built in N s" because the build *did* happen — and then was nuked from the host. Either don't `rm` the dist while a container is up, or `--force-recreate` the MFE afterwards so it rebuilds.
+
+## Login: shell-orchestrated vs vanilla per-app
+
+The login lifecycle changed shape with the React + Module Federation rewrite. The vanilla TS era treated each of the three apps as an independent OIDC consumer; the MFE era folds them into one. The whole comparison is in `README.md` (see the *Login: then vs now* section). The short version for editing purposes:
+
+| Concern | Vanilla TS era (`web-a/b/c`, gone) | Current MFE era |
+|---|---|---|
+| `keycloak-js` instances | One per origin (3 pages, 3 instances) | One total — only `apps/shell/src/auth/keycloak.ts` |
+| `keycloak.init()` calls | One per page load | One per process, gated by `initPromise` in `AuthProvider` (StrictMode-safe) |
+| OIDC clients | `app1/2/3-client` | `mfe-shell-client` only (the old three are disabled in `realm-export.json` but kept for rollback) |
+| Token store | Per-origin keycloak-js memory | Shell's keycloak-js memory; MFEs never see the instance |
+| MFE → token | (no MFEs existed) | `host.auth.getToken()` calls `keycloak.updateToken(30)` then returns the token |
+| Logout fan-out | Each tab notices on its own next `check-sso` | `keycloak.onAuthLogout` → `queryClient.clear()` → every MFE query refetches anonymous in the same tick |
+
+When changing auth, the load-bearing files are `apps/shell/src/auth/AuthProvider.tsx` (lifecycle + context), `apps/shell/src/auth/useShellHost.ts` (mapping to `ShellHost`), and `packages/shell-api/src/index.ts` (the contract). MFEs only consume `host.auth.*` — they have no other entry point into Keycloak.
 
 ## 2FA gotchas
 
