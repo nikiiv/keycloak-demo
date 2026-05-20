@@ -1,0 +1,24 @@
+{
+  "name": "mfe-admin",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.tsx",
+  "types": "./src/index.tsx",
+  "exports": {
+    ".": "./src/index.tsx"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "^5",
+    "react": "^18",
+    "react-dom": "^18"
+  },
+  "dependencies": {
+    "shell-api": "*"
+  },
+  "devDependencies": {
+    "@tanstack/react-query": "^5.60.0",
+    "@types/react": "^18.3.12",
+    "typescript": "^5.3.0"
+  }
+}
