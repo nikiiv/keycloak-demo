@@ -169,3 +169,9 @@ You can also poke `user-service` directly on port 8090 — it's exposed for insp
 ## Commit style
 
 Recent commits use plain prose bodies, no trailers other than `Co-Authored-By: Claude ...`. Prefer one commit per logical change; match the existing style.
+
+## Language: English for everything that lands in the repo
+
+All persistent artifacts must be in English: markdown docs, code comments, identifiers, file names, commit messages. Conversational replies in chat can mirror whatever language the user is writing in (often Bulgarian), but the moment something is written to disk and committed it must be English. The repo is a public-shareable demo, and contributors / future readers won't necessarily read Bulgarian.
+
+When the user dictates content in Bulgarian and asks for it to be saved, translate as you write rather than transcribing. Filenames stay in kebab-case English (e.g. `mfe-repo-strategy.md`, not Cyrillic).
