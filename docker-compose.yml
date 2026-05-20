@@ -1,5 +1,3 @@
-version: "3.8"
-
 # Microfrontend topology. The shell at :5173 signs users in once against
 # Keycloak and lazy-loads three independently-deployed MFEs through module
 # federation; each MFE is its own container and pairs with its own BFF.
