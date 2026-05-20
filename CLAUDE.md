@@ -66,7 +66,7 @@ Role → MFE mapping in `bff/UserController.java#whoami`:
 
 ## Login: shell-orchestrated vs vanilla per-app
 
-The login lifecycle changed shape with the React + Module Federation rewrite. The vanilla TS era treated each of the three apps as an independent OIDC consumer; the MFE era folds them into one. The whole comparison is in `README.md` (see the *Login: then vs now* section). The short version for editing purposes:
+The login lifecycle changed shape with the React + Module Federation rewrite. The vanilla TS era treated each of the three apps as an independent OIDC consumer; the MFE era folds them into one. The dedicated deep-dive is `LOGIN.md` at the repo root — full flow, rationale, vanilla diff, and a prod-security audit. The short version for in-edit reference:
 
 | Concern | Vanilla TS era (`web-a/b/c`, gone) | Current MFE era |
 |---|---|---|
