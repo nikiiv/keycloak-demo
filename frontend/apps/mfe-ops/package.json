@@ -10,7 +10,9 @@
   },
   "scripts": {
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0 --port 5182 --strictPort"
+    "build:watch": "vite build --watch",
+    "preview": "vite preview --host 0.0.0.0 --port 5182 --strictPort",
+    "dev": "vite build && concurrently --kill-others --names 'watch,preview' --prefix-colors 'blue,green' 'npm:build:watch' 'npm:preview'"
   },
   "peerDependencies": {
     "@tanstack/react-query": "^5",

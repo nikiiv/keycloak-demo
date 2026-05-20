@@ -125,6 +125,51 @@ If you're using `podman compose` directly, two things to know:
 | `EmailOtpAuthenticator` / `ResendClient` source | `podman compose build keycloak && podman compose up -d --force-recreate keycloak` — same as any SPI change |
 | Auth flow edit in `realm-export.json` | wipe postgres volume (`down -v`) OR patch live flow via admin API — see note above |
 
+## Dev workflows (Level 1 / 2 / 3)
+
+The default `./start.sh` stack rebuilds everything on source change — fine for occasional edits, painful for active dev. There are two opt-in overlays for tighter loops; **the default demo stays exactly as it is**.
+
+### Level 1 — default (`./start.sh`)
+
+Already documented above. Loops:
+
+- Shell source → Vite HMR, <1s.
+- MFE source → `docker compose up -d --force-recreate mfe-<X>`, ~10-15s (npm install cached, just rebuild + restart).
+- BFF source → `docker compose up -d --build --force-recreate bff-client bff-ops bff-admin`, ~90s (Gradle + Docker build).
+
+### Level 2 — MFE rebuild-on-save (`docker-compose.dev.yml`)
+
+Each MFE's `package.json` has a `dev` script that runs `vite build` once then `concurrently` runs `vite build --watch` + `vite preview`. `docker-compose.dev.yml` overrides the three MFE containers' command to use that script.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+```
+
+Loop: save → ~1-2s incremental rebuild inside the container → **hard refresh** the browser to fetch the new federation chunks. No `--force-recreate` between edits. Federation `remoteEntry.js` has a fixed filename (no content hash), so the next federation fetch picks the new chunks; browser ES-module caching is why the manual refresh is needed.
+
+### Level 3 — BFF on the host (`./dev-bff.sh`)
+
+For active BFF work the ~90s compose loop is the bottleneck. `dev-bff.sh` stops the compose BFF and runs the same Micronaut module on the host with `./gradlew run -t` (continuous build).
+
+```bash
+# Terminal 1 — keep the rest of the stack up:
+./start.sh
+
+# Terminal 2 — run the BFF you're editing locally:
+./dev-bff.sh client       # or ops / admin
+
+# Terminal 3 — point the shell's Vite proxy at your host process:
+BFF_CLIENT_URL=http://host.docker.internal:8081 \
+  docker compose -f docker-compose.yml -f docker-compose.dev.yml \
+                 up -d --force-recreate shell
+```
+
+Loop: save → ~3s Gradle incremental → Micronaut restart in-place. `host.docker.internal` works on Docker Desktop (Mac/Win/Linux 4.10+); on Podman 4+ swap for `host.containers.internal`.
+
+Issuer note: tokens minted via the browser flow carry `http://localhost:8888/realms/demo-realm` as the issuer (that's the URL the browser hit Keycloak on). The dev-bff script sets `KEYCLOAK_AUTH_SERVER_URL=http://localhost:8888/realms/demo-realm` for that reason — the in-compose `http://keycloak:8080` URL would also reach Keycloak but issuer validation might tighten in the future.
+
+To return to the demo BFF: `docker compose up -d bff-client` (or `bff-ops`/`bff-admin`); restoring the compose BFF also frees the host port.
+
 ## Testing the role matrix quickly
 
 ```bash

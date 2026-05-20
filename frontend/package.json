@@ -10,5 +10,8 @@
   "scripts": {
     "dev": "npm run -w shell dev",
     "build": "npm run -ws --if-present build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
   }
 }

@@ -121,6 +121,18 @@ docker compose down -v && ./start.sh
 
 Wait for all services to start (Keycloak takes ~30 seconds; the three Vite-preview containers `npm install && vite build` once on first start). All custom images compile from source at build time — Keycloak SPI (provider + generated REST client) during the Keycloak image build, the Micronaut BFF and `user-service` into shadow jars during their respective image builds. The two generated halves both come from `user-api/openapi.yaml`.
 
+### Development workflows
+
+The `./start.sh` stack is the demo. For active development there are two opt-in overlays — the default stays as-is unless you use them.
+
+| Level | When | How | Loop |
+|---|---|---|---|
+| **1 — default** | Casual edits, demo runs | `./start.sh` then per-service `docker compose up -d --force-recreate …` | Shell HMR <1s; MFE ~10-15s; BFF ~90s |
+| **2 — MFE rebuild-on-save** | Actively writing MFE source | `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d` (uses each MFE's `dev` script: `vite build --watch` + `vite preview`) | Save → ~1-2s rebuild inside the container → hard-refresh the browser. No `--force-recreate` between edits. |
+| **3 — BFF on the host** | Actively writing BFF source | `./dev-bff.sh client\|ops\|admin` runs Gradle continuous-build locally; combine with the dev overlay + `BFF_<WHICH>_URL=http://host.docker.internal:<port>` so the shell's Vite proxy targets your host process | Save → ~3s Gradle incremental → Micronaut restart in place |
+
+Level 2 + Level 3 stack together — both rely on `docker-compose.dev.yml` for the shell's `BFF_*_URL` overrides. See `CLAUDE.md → Dev workflows` for the issuer caveat (browser-minted tokens use `http://localhost:8888/...` as `iss`, so the host BFF needs `KEYCLOAK_AUTH_SERVER_URL` pointing at the same URL — `dev-bff.sh` already handles that).
+
 ### Running with Podman on macOS
 
 `docker compose` (the CLI Podman delegates to) talks to a Docker-style socket, so point `DOCKER_HOST` at the Podman machine socket before running `podman compose`:
