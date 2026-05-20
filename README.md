@@ -92,9 +92,66 @@ export DOCKER_HOST="unix://$(podman machine inspect --format '{{.ConnectionInfo.
 
 Copy `.envrc.example` to `.envrc` (it's gitignored, because it also holds the Resend API token — see the 2FA section below). If you use [direnv](https://direnv.net/), run `direnv allow` once and it will be set automatically whenever you `cd` into the project. Otherwise `source .envrc` in each shell.
 
+### Per-app HTTPS domains (first-time setup)
+
+The three apps are served behind nginx at HTTPS hostnames
+(`https://domain1.app1.int`, `https://domain2.app2.int`, `https://domain3.app3.int`)
+in addition to the legacy `http://localhost:517X` URLs. HTTPS is required because
+the browser gates Web Crypto (which `keycloak-js` needs for PKCE) to secure
+contexts — full bug story in
+[`web-crypto-https-fix.md`](./web-crypto-https-fix.md); architecture in
+[`nginx-domains-report.md`](./nginx-domains-report.md).
+
+One-time setup on each dev machine:
+
+```bash
+# 1. Install mkcert (and nss if you use Firefox).
+brew install mkcert
+brew install nss   # only for Firefox
+
+# 2. Install the local CA into the system trust store.
+mkcert -install
+
+# 3. Generate a cert covering the three demo hostnames (gitignored).
+mkdir -p proxy/certs
+mkcert -cert-file proxy/certs/cert.pem \
+       -key-file  proxy/certs/key.pem \
+       domain1.app1.int domain2.app2.int domain3.app3.int
+
+# 4. Add /etc/hosts entries (compose can't do this for you).
+echo "127.0.0.1 domain1.app1.int domain2.app2.int domain3.app3.int" | sudo tee -a /etc/hosts
+
+# 5. Start the stack.
+./start.sh
+```
+
+Then open `https://domain1.app1.int` (App A), `https://domain2.app2.int` (App B)
+or `https://domain3.app3.int` (App C) in the browser — Chrome / Safari / Edge
+trust the mkcert CA automatically; Firefox does too if `nss` is installed.
+
+**Restart on an existing postgres volume.** `--import-realm` is
+`IGNORE_EXISTING`, so an already-seeded realm keeps the URI set it had when it
+was first seeded. If your Keycloak DB predates these HTTPS URIs, either wipe
+and re-import:
+
+```bash
+docker compose down -v && ./start.sh
+```
+
+…or patch the running realm via the admin API (preserves sessions; pattern in
+`nginx-domains-report.md` §"Live-realm patch via admin API").
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Browser shows "Your connection is not private" | mkcert CA not in system trust store | `mkcert -install` |
+| Same on Firefox while Chrome works | Firefox has its own NSS store | `brew install nss && mkcert -install` |
+| Vite: `Blocked request. This host is not allowed.` | hostname missing from `allowedHosts` | already covered in `frontend/vite.config.ts`; verify it lists the `.int` names |
+| Login fails with `invalid redirect_uri` | running realm predates the HTTPS URIs | wipe-and-reimport, or admin-API patch |
+| `Web Crypto API is not available` | browser still on plain HTTP | confirm the URL is `https://` and the proxy container is up on `:443` |
+
 ## Test SSO + AuthZ
 
-1. Open http://localhost:5173 (App A).
+1. Open `https://domain1.app1.int` (App A; or the legacy `http://localhost:5173`).
 2. Click "Login" — you'll be redirected to Keycloak.
 3. Enter one of the user emails from the table below and password `123`.
 4. Keycloak sends a 6-digit code to that email via Resend and shows an OTP form. Enter the code to complete login. (If delivery doesn't land — see the Resend caveat below — the code is also printed to the Keycloak log: `podman compose logs keycloak | grep "Email OTP"`.)
