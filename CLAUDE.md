@@ -1,12 +1,16 @@
 # CLAUDE.md
 
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 Survival notes for working in this repo. The **README.md** is the user-facing doc; this file only captures things that matter when editing the code and that you can't reliably infer from a first read.
 
 ## What this is
 
-A Keycloak SSO demo: one Vite SPA + one Micronaut BFF, launched three times (App A/B/C) as independent OIDC clients. End-user identity comes from a custom Keycloak User Storage SPI in `keycloak-provider/` — users are a hardcoded Java `Map`, not rows in Keycloak's Postgres.
+A Keycloak SSO demo: one Vite SPA + one Micronaut BFF, launched three times (App A/B/C) as independent OIDC clients. End-user identity lives in a **standalone Micronaut REST service** (`user-service/`); the Keycloak User Storage SPI in `keycloak-provider/` is a thin REST client of it. Keycloak's Postgres only holds realm metadata and sessions.
 
-Three demo users (SPI-hardcoded) — identified by email because `loginWithEmailAllowed=true`. Username still works as an alternate identifier:
+The REST contract between the SPI and `user-service` is defined OpenAPI-first in `user-api/openapi.yaml`. Both sides — the SPI's HTTP client and the user-service's controller/model stubs — are **generated** from that one file at build time. Edits to a generated class are blown away on the next build; change the spec instead.
+
+Three demo users (hardcoded in `user-service/src/main/java/demo/userservice/UserController.java`) — identified by email because `loginWithEmailAllowed=true`. Username still works as an alternate identifier:
 
 | Username | Email | Password | Roles |
 |---|---|---|---|
@@ -28,19 +32,27 @@ Per-app role model. The BFF is the source of truth: each bff reads `APP_ALLOWED_
 
 - `frontend/` — shared SPA source. `src/App.ts` has the banner + Protected-panel rendering; `src/User.ts` wraps Keycloak/BFF calls; `index.html` has all CSS.
 - `bff/` — shared Micronaut backend. `src/main/java/demo/UserController.java` has the role checks; `src/main/resources/application.yml` maps env vars to `app.*` config. `bff/Dockerfile` builds a single fat-jar image (`keycloak-demo-bff:latest`) shared by all three `bff-*` services.
-- `keycloak/realm-export.json` — realm seed: clients, realm roles, default-role composite, SPI component registration.
-- `keycloak-provider/` — standalone Gradle project shipping **two** SPIs in one jar: the User Storage provider (`DemoUserStorageProvider`) and the Email-OTP Authenticator (`EmailOtpAuthenticator` + factory + `ResendClient`). Two service files under `src/main/resources/META-INF/services/` register them. The OTP form lives in `src/main/resources/theme-resources/templates/email-otp.ftl`. To add a user, edit the `USERS` map in `DemoUserStorageProvider.java` and rebuild the Keycloak image (`podman compose build keycloak && podman compose up -d --force-recreate keycloak`).
-- `docker-compose.yml` — parameterizes every app-specific value via env vars. Three web services (5173/5174/5175), three BFFs (8081/8082/8083), plus Keycloak (8888) and Postgres.
-- `Dockerfile.keycloak` — multi-stage: builds the SPI jar and bakes it into the Keycloak image via `kc.sh build`. SPI changes need a full image rebuild, not just a container restart.
+- `user-service/` — standalone Micronaut REST service that owns the demo users. `src/main/java/demo/userservice/UserController.java` has the hardcoded `USERS` map + password verify; it extends `AbstractUsersController`, which is **generated** under `build/generated/openapi/` from the contract. Fat-jar image `keycloak-demo-user-service:latest`.
+- `user-api/openapi.yaml` — the single hand-written description of the SPI ↔ user-service wire format. Both `keycloak-provider/` (client) and `user-service/` (server stubs) regenerate from this on every build.
+- `keycloak-provider/` — standalone Gradle project shipping **two** SPIs in one jar: the User Storage provider (`DemoUserStorageProvider` + `UserServiceClient` + adapter) and the Email-OTP Authenticator (`EmailOtpAuthenticator` + factory + `ResendClient`). Two service files under `src/main/resources/META-INF/services/` register them. The OTP form lives in `src/main/resources/theme-resources/templates/email-otp.ftl`. The generated REST client (`com.example.keycloak.client.*`) lives only in `build/`; never edit it. To add or modify a user, see `user-service/` above — **not** this module.
+- `keycloak/realm-export.json` — realm seed: clients, realm roles, default-role composite, SPI component registration, `demo-browser` flow with the OTP step.
+- `docker-compose.yml` — parameterizes every app-specific value via env vars. Three web services (5173/5174/5175), three BFFs (8081/8082/8083), plus Keycloak (8888), `user-service` (8090), and Postgres.
+- `Dockerfile.keycloak` — multi-stage: stage 1 runs `gradle shadowJar` on `keycloak-provider/` (which first generates the REST client from `user-api/openapi.yaml`, then fat-jars it with relocated Jackson). Stage 2 copies the jar into `/opt/keycloak/providers/` and runs `kc.sh build`. Build context is the **repo root** so the build can read `user-api/`. SPI changes need a full image rebuild, not just a container restart.
+- `start.sh` — the canonical entrypoint. Auto-detects docker or podman, sources `.envrc`, tears the stack down (preserving volumes), rebuilds all three custom images, and brings everything back up. On the podman path it explicitly waits for postgres + user-service + keycloak healthchecks before starting the rest, because `podman compose` ignores `depends_on: condition: service_healthy`. Override engine selection with `CONTAINER_ENGINE=docker|podman`.
 
 ## Non-obvious runtime gotchas
 
 - **`Authentication.getRoles()` returns `Collection<String>`, not `List<String>`.** The Micronaut type is `Collection`; don't assign to `List` in `UserController.java`.
 - **Realm imports are `IGNORE_EXISTING` by default.** `--import-realm` seeds an empty Postgres only. To apply a `realm-export.json` edit on a running stack, either `podman compose down -v && up` (wipes everything) or change the live realm via admin API (fast, preserves sessions). Always update both if you want reproducibility.
-- **SPI auto-creates realm roles.** `DemoUser.getRoleMappingsInternal()` calls `realm.addRole(name)` if a referenced role is missing, so roles named by SPI records that aren't in `realm-export.json` still work at runtime — but a fresh-DB install would lack them until the first login. Keep BFF-gated role names declared in the JSON too.
+- **SPI auto-creates realm roles.** `DemoUser.getRoleMappingsInternal()` calls `realm.addRole(name)` if a referenced role is missing, so roles named by user-service records that aren't in `realm-export.json` still work at runtime — but a fresh-DB install would lack them until the first login. Keep BFF-gated role names declared in the JSON too.
 - **`defaultRoles` is deprecated in Keycloak 26.** The realm JSON no longer has `"defaultRoles"`; the old effect (every user gets `user`) lived in the `default-roles-demo-realm` composite, from which we removed `user`. Don't add `defaultRoles` back — it won't behave as you expect.
-- **BFF runs as a baked fat jar, not `gradle run`.** The Micronaut app is built once via `bff/Dockerfile` (shadow jar produced by `com.gradleup.shadow` plugin, then copied into an `eclipse-temurin:17-jre` base) and all three `bff-*` services share the `keycloak-demo-bff:latest` image. PID 1 inside each container is `java -jar /app/bff.jar`; there is no source tree, no Gradle cache, and no bind mount. A source edit needs `podman compose up -d --build --force-recreate bff-a bff-b bff-c` — not a plain `restart`. The `--force-recreate` matters: after a rebuild, the `keycloak-demo-bff:latest` tag points to a new image ID, but existing containers still hold the *old* ID at creation time. `up -d` alone won't notice; `--force-recreate` unconditionally destroys + recreates the three containers so they bind to the new image.
-- **Shadow plugin is declared explicitly in `bff/build.gradle.kts`.** Micronaut 4.4's application plugin doesn't register `shadowJar` on its own (it prefers its own `buildLayers`/`dockerBuild` flow); we add `id("com.gradleup.shadow") version "8.3.5"` so `gradle shadowJar` produces `build/libs/*-all.jar` for the Dockerfile to copy. (All three Gradle modules use the Kotlin DSL — `build.gradle.kts`.)
+- **SPI is `NO_CACHE`.** The realm component config sets `cachePolicy: NO_CACHE`, so every Keycloak lookup hits `user-service` over REST. Changes in `user-service` are visible on the next request (good for the demo) but every login is at least 3 round-trips over the compose network — don't be surprised by the latency.
+- **`UserServiceClient` is fail-closed.** Any non-200 / transport error on `/users/verify-credentials` returns `false`. If `user-service` is down, a `grant_type=password` request returns `invalid_grant` rather than hanging. Lookups (`getUserByUsername`, etc.) similarly map any error to `null`. This is intentional: never authenticate when the user store is unreachable.
+- **Generated code lives in `build/`, not `src/`.** `openApiGenerate` writes `keycloak-provider/build/generated/openapi/` and `user-service/build/generated/openapi/`. Both are gitignored and regenerated every build. Editing them is pointless. `user-service/openapi-generator-ignore` suppresses the generator's sample controller stub so only the hand-written `UserController` compiles.
+- **The provider jar ships shaded Jackson.** `shadowJar` in `keycloak-provider/build.gradle.kts` relocates `com.fasterxml.jackson` → `com.example.keycloak.shaded.jackson` so the in-JVM SPI client cannot collide with the Jackson Keycloak already loads on the provider classpath. If you add a new dependency to the provider, think about classloader clashes.
+- **BFF and user-service run as baked fat jars, not `gradle run`.** Both Micronaut apps are built once into their own image (`bff/Dockerfile`, `user-service/Dockerfile`) using the `com.gradleup.shadow` plugin → `eclipse-temurin:17-jre` base. PID 1 is `java -jar /app/<svc>.jar`; there is no source tree, no Gradle cache, and no bind mount. A source edit needs a `--build --force-recreate` (see the table below). `--force-recreate` matters: after a rebuild, the `*:latest` tag points to a new image ID, but existing containers still hold the *old* ID at creation time. `up -d` alone won't notice; `--force-recreate` unconditionally destroys + recreates so they bind to the new image.
+- **Shadow plugin is declared explicitly in `bff/build.gradle.kts` and `user-service/build.gradle.kts`.** Micronaut 4.4's application plugin doesn't register `shadowJar` on its own (it prefers its own `buildLayers`/`dockerBuild` flow); both modules add `id("com.gradleup.shadow") version "8.3.5"` so `gradle shadowJar` produces `build/libs/*-all.jar` for the Dockerfiles to copy. All Gradle modules use the Kotlin DSL — `build.gradle.kts`.
+- **Build context for the Keycloak and user-service images is the repo root**, not their own subdirectories. Both Dockerfiles read `user-api/openapi.yaml` as a sibling of their module, so the compose `build.context` is `.` with an explicit `dockerfile:` path. Don't rewrite these to use a subdirectory context — generation will fail to find the spec.
 - **Keycloak admin API is on port 8888 (not 8080).** Get a token at `/realms/master/protocol/openid-connect/token` with `client_id=admin-cli&grant_type=password&username=admin&password=admin`. Admin endpoints live under `/admin/realms/demo-realm/...`.
 - **`keycloak-js` must be ≥ 26.x.** Older versions validate a `nonce` claim that Keycloak 26 no longer emits.
 
@@ -49,21 +61,27 @@ Per-app role model. The BFF is the source of truth: each bff reads `APP_ALLOWED_
 - **Email OTP runs only on the browser flow.** The realm's `browserFlow` is `demo-browser`, which chains `auth-username-password-form` then `demo-email-otp`. Direct-grant (`grant_type=password`) uses the stock `direct grant` flow and **bypasses OTP** — convenient for `curl` tests, but means the role-matrix script below doesn't exercise the second factor.
 - **OTP code lives in `AuthenticationSessionModel` notes.** `EmailOtpAuthenticator` stores `email-otp-code` + `email-otp-expires`; no Postgres schema. If a code expires, `action()` re-enters `authenticate()` and mints a new one in place (user stays on the OTP form).
 - **Resend sandbox only delivers to the account owner.** `onboarding@resend.dev` → only the email address registered with the Resend account actually receives. Other addresses return `202 Accepted` from the API but aren't delivered. Mitigation: `EmailOtpAuthenticator.authenticate()` always logs `Email OTP for <email>: NNNNNN (valid 10min)` at INFO, so the demo is usable without inbox delivery (`podman compose logs keycloak | grep "Email OTP"`). Proper fix is to verify a domain at Resend and set `RESEND_FROM` to an address in that domain.
-- **Resend token lives in `.envrc` as `RESEND_API_TOKEN`** and is passed through compose into the keycloak container. `ResendClient` reads it via `System.getenv()`; no secret is baked into the image.
+- **`RESEND_API_TOKEN` unset is a supported mode.** `ResendClient.send()` short-circuits with a calm INFO log if the token is empty — no exception, no stack trace — and login continues using the logged OTP. The token lives in `.envrc` (gitignored) and is read via `System.getenv()`; never baked into the image.
 - **10-minute validity is for the *code*, not the session.** Once authentication completes, the realm's existing `accessTokenLifespan` / `ssoSessionIdleTimeout` / `ssoSessionMaxLifespan` apply as before. No forced logout at 10 minutes.
-- **New `jakarta.ws.rs-api` compile-only dep.** `EmailOtpAuthenticator` imports `jakarta.ws.rs.core.Response` and `MultivaluedMap`; Keycloak's SPI jars don't transitively expose jakarta-ws-rs at compile time, so `build.gradle.kts` declares it. If you build a new authenticator that uses JAX-RS types, the build fails without this dep.
+- **`jakarta.ws.rs-api` is a `compileOnly` dep.** `EmailOtpAuthenticator` imports `jakarta.ws.rs.core.Response` and `MultivaluedMap`; Keycloak's SPI jars don't transitively expose jakarta-ws-rs at compile time, so `keycloak-provider/build.gradle.kts` declares it. If you build a new authenticator that uses JAX-RS types, the build fails without this dep.
 - **Authenticator ID is `demo-email-otp`.** If you rename it in `EmailOtpAuthenticatorFactory.PROVIDER_ID`, update the `"demo-browser forms"` flow in `realm-export.json` to match, or the flow won't load on fresh import.
 - **OTP trust cookie skips the email step.** After a successful OTP, `EmailOtpAuthenticator.issueTrustCookie()` sets `KC_DEMO_OTP_TRUSTED` (HttpOnly, realm-scoped, SameSite=Lax). The cookie carries `userId.expiresAt.hmac` (HMAC-SHA256 with a process-local key). On the next `authenticate()`, a matching unexpired cookie short-circuits the flow via `context.success()` — no code generated, no email sent. Window is `OTP_TRUST_WINDOW_MINUTES` (default 60; `0` disables the feature and always requires OTP). The HMAC key is regenerated on Keycloak restart, which invalidates every outstanding trust cookie — fine for a demo, not fine for production.
 
 ## Running this on macOS + Podman
 
-The compose CLI talks through a Docker-style socket. Podman uses a different socket path than the machine-default claims:
+`./start.sh` is the normal way in — it auto-detects docker or podman and handles the macOS podman quirks below. Force one or the other with `CONTAINER_ENGINE=docker|podman ./start.sh`.
 
-```bash
-export DOCKER_HOST="unix:///var/folders/.../T/podman/podman-machine-default-api.sock"
-```
+If you're using `podman compose` directly, two things to know:
 
-Get the real path with `podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}'`. The `.envrc` has a version of this, but if `podman compose` errors with "Cannot connect to the Docker daemon," export the path directly. Every Bash call that uses `podman compose` in this repo must have `DOCKER_HOST` set.
+1. **`DOCKER_HOST` socket path.** The compose CLI talks through a Docker-style socket; Podman uses a different socket path than the machine-default claims:
+
+   ```bash
+   export DOCKER_HOST="unix://$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}')"
+   ```
+
+   The `.envrc` has a version of this, but if `podman compose` errors with "Cannot connect to the Docker daemon," export the path directly. Every Bash call that uses `podman compose` in this repo must have `DOCKER_HOST` set.
+
+2. **`depends_on: condition: service_healthy` is ignored.** `podman compose` doesn't honor compose healthcheck gating, so a naive `podman compose up -d` starts `keycloak` before `user-service` is reachable and Keycloak's SPI registration fails. `start.sh` works around this by `up -d`-ing postgres + user-service first, polling their health, then bringing keycloak up, then everything else. If you skip `start.sh`, replicate the sequence by hand or wait long enough.
 
 ## Applying changes — what needs what
 
@@ -71,6 +89,8 @@ Get the real path with `podman machine inspect --format '{{.ConnectionInfo.Podma
 |---|---|
 | Frontend (SPA) source | nothing — Vite HMR picks it up |
 | BFF source | `podman compose up -d --build --force-recreate bff-a bff-b bff-c` — one build, three recreates (they share the image). `--force-recreate` is the belt-and-suspenders bit: without it, some compose implementations don't notice the image ID moved and leave the old containers running. |
+| `user-service` source (incl. adding/removing demo users) | `podman compose up -d --build --force-recreate user-service` — only this image. Keycloak does not need a rebuild because the SPI didn't change. |
+| `user-api/openapi.yaml` (contract edit) | rebuild **both** sides: `podman compose up -d --build --force-recreate user-service` **and** `podman compose build keycloak && podman compose up -d --force-recreate keycloak`. Both modules regenerate their half of the contract on the next `gradle` invocation. |
 | Env var on a service | `podman compose up -d --force-recreate <service>` |
 | `docker-compose.yml` structural change | `podman compose up -d` (compose picks up the diff) |
 | `keycloak-provider/` SPI source | `podman compose build keycloak && podman compose up -d --force-recreate keycloak` |
@@ -95,7 +115,9 @@ for u in democlient demouser demoadmin; do
 done
 ```
 
-Expected: the matrix above. Any deviation means either the BFF env var isn't set or the token roles aren't what you think — decode the JWT payload with `echo "$T" | cut -d. -f2 | base64 -d` to check.
+Expected: the matrix above. Any deviation means either the BFF env var isn't set or the token roles aren't what you think — decode the JWT payload with `echo "$T" | cut -d. -f2 | base64 -d` to check. Reminder: this uses direct-grant, so the OTP step is **not** exercised.
+
+You can also poke `user-service` directly on port 8090 — it's exposed for inspection (`GET /users/{username}`, `GET /users?email=...`, `POST /users/verify-credentials`, `GET /health`). Inside the compose network Keycloak reaches it as `http://user-service:8080`.
 
 ## Commit style
 
