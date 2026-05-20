@@ -56,6 +56,8 @@ The User Storage SPI runs in Keycloak's JVM but holds no user data — it calls 
 
 **Shell vs MFE responsibility split.** The shell is an *orchestrator* and owns only what every MFE has to share: the React Provider stack (`AuthProvider` with the singleton keycloak-js, `QueryClientProvider`, `BrowserRouter`), the chrome (`Nav` + `Layout`), the role-gating (`RoleGate` → consults `/api/whoami`), the federation host config, the shared `styles.css`, and the shell-api type contract. Every page (`Welcome`, `Profile`, `Protected`, the MFE-specific work UIs) lives inside its MFE workspace.
 
+> **Where this topology can go next**: [mfe-repo-strategy.md](./mfe-repo-strategy.md) is the analysis of splitting each MFE into its own repo, deploying shell / MFEs / BFFs independently from the current monorepo, and giving each MFE its own subdomain (`billing.company.com`, `reporting.company.com`, …). Federation is already wired for all three — the doc covers the trade-offs and the practical migration path.
+
 ## Login: then vs now
 
 > **Full walkthrough**: [LOGIN.md](./LOGIN.md) is the dedicated step-by-step trace of the entire login + logout flow, plus a production-security audit (must-fix / should-add / nice-to-have). For a focused look at what each leak type (password, access token, refresh token, SSO cookie, OTP trust cookie, hostile user-service) does to a BFF call, see [compromised-credentials-analysis.md](./compromised-credentials-analysis.md). This section is the short comparison.
