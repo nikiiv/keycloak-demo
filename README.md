@@ -58,7 +58,7 @@ The User Storage SPI runs in Keycloak's JVM but holds no user data — it calls 
 
 ## Login: then vs now
 
-> **Full walkthrough**: [LOGIN.md](./LOGIN.md) is the dedicated step-by-step trace of the entire login + logout flow, plus a production-security audit (must-fix / should-add / nice-to-have). This section is the short comparison.
+> **Full walkthrough**: [LOGIN.md](./LOGIN.md) is the dedicated step-by-step trace of the entire login + logout flow, plus a production-security audit (must-fix / should-add / nice-to-have). For a focused look at what each leak type (password, access token, refresh token, SSO cookie, OTP trust cookie, hostile user-service) does to a BFF call, see [compromised-credentials-analysis.md](./compromised-credentials-analysis.md). This section is the short comparison.
 
 The vanilla-TS era ran the same SPA source three times under three OIDC clients, with SSO held together by Keycloak's realm-wide session cookie. The MFE era folds the three apps into one shell and lets the MFEs join it as runtime modules. The login mechanics changed everywhere:
 
