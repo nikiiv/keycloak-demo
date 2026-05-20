@@ -3,6 +3,7 @@
   "realm": "demo-realm",
   "enabled": true,
   "displayName": "Demo SSO Realm",
+  "loginTheme": "mfe-shell",
   "accessTokenLifespan": 300,
   "ssoSessionIdleTimeout": 1800,
   "ssoSessionMaxLifespan": 36000,
