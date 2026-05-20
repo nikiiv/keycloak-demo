@@ -18,6 +18,15 @@ bin/
 # Local env (contains secrets). Copy .envrc.example to get started.
 .envrc
 
+# Vite cache — regenerated on each dev server start.
+.vite/
+
+# mkcert-issued local certs (private key in there). Each developer
+# regenerates with:
+#   mkcert -cert-file proxy/certs/cert.pem -key-file proxy/certs/key.pem \
+#     domain1.app1.int domain2.app2.int domain3.app3.int
+proxy/certs/
+
 
 #AI
 .claude

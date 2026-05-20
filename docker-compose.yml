@@ -109,6 +109,31 @@ services:
       retries: 20
       start_period: 20s
 
+  # Reverse proxy on :80 / :443 that maps each app-specific hostname to the
+  # matching Vite dev server. The three apps are reached as
+  #   https://domain1.app1.int → web-a
+  #   https://domain2.app2.int → web-b
+  #   https://domain3.app3.int → web-c
+  # The /etc/hosts entry on the browsing machine has to point those names
+  # at 127.0.0.1. HTTPS is mandatory because browsers gate Web Crypto and
+  # Storage Access (used by keycloak-js for PKCE) to secure contexts, and
+  # an arbitrary .int hostname only counts as secure when served over TLS.
+  # The cert is mkcert-issued and lives under ./proxy/certs/.
+  proxy:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./proxy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./proxy/certs:/etc/nginx/certs:ro
+    networks:
+      - keycloak-network
+    depends_on:
+      - web-a
+      - web-b
+      - web-c
+
   web-a:
     <<: *web-common
     ports:
@@ -152,7 +177,7 @@ services:
     environment:
       MICRONAUT_APPLICATION_NAME: bff-a
       APP_SOURCE: bff-a
-      CORS_ORIGIN: http://localhost:5173
+      CORS_ORIGIN: https://domain1.app1.int
       KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
 
   bff-b:
@@ -163,7 +188,7 @@ services:
       MICRONAUT_APPLICATION_NAME: bff-b
       APP_SOURCE: bff-b
       APP_ALLOWED_ROLES: "user,admin"
-      CORS_ORIGIN: http://localhost:5174
+      CORS_ORIGIN: https://domain2.app2.int
       KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
 
   bff-c:
@@ -174,7 +199,7 @@ services:
       MICRONAUT_APPLICATION_NAME: bff-c
       APP_SOURCE: bff-c
       APP_ALLOWED_ROLES: "admin"
-      CORS_ORIGIN: http://localhost:5175
+      CORS_ORIGIN: https://domain3.app3.int
       KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
 
 volumes:
