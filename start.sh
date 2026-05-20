@@ -132,7 +132,7 @@ wait_healthy() {
 }
 
 echo "==> Stopping any running containers (volumes preserved)"
-"${COMPOSE[@]}" "${FILES[@]}" down || true
+"${COMPOSE[@]}" "${FILES[@]}" down --remove-orphans || true
 
 echo "==> Rebuilding all images (keycloak + bff + user-service)"
 "${COMPOSE[@]}" "${FILES[@]}" build

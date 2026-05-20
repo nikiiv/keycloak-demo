@@ -85,7 +85,7 @@ if [ -f docker-compose.dev.yml ]; then
   FILES+=(-f docker-compose.dev.yml)
 fi
 
-DOWN_ARGS=(down)
+DOWN_ARGS=(down --remove-orphans)
 if [ "$WIPE" = 1 ]; then
   DOWN_ARGS+=(-v)
   echo "==> Stopping stack AND removing volumes (Postgres + Keycloak data will be lost)"
