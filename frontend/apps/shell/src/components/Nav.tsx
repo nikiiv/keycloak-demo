@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import type { MfeKey } from 'shell-api';
 import { useAuth } from '../auth/AuthProvider';
-import { useKeycloakProfile, useWhoAmI } from '../api/queries';
+import { useWhoAmI } from '../api/queries';
 import { APP_NAME, SHELL_BRAND_MARK, SHELL_NAV_SUB } from '../theme';
 
 const MFE_LABEL: Record<MfeKey, string> = {
@@ -17,8 +17,7 @@ const MFE_PATH: Record<MfeKey, string> = {
 };
 
 export function Nav() {
-  const { authenticated, logout } = useAuth();
-  const profile = useKeycloakProfile(authenticated);
+  const { authenticated, username, email, logout } = useAuth();
   const whoami = useWhoAmI(authenticated);
 
   const allowed = whoami.data?.allowedMfes ?? [];
@@ -44,13 +43,13 @@ export function Nav() {
           </span>
         );
       })}
-      <Link to="/protected">Protected</Link>
-      <Link to="/profile">Profile</Link>
+      <Link to="/client/protected">Protected</Link>
+      <Link to="/client/profile">Profile</Link>
       {authenticated && (
         <div className="nav-session">
           <div className="nav-user">
-            <div className="nav-user-name">{profile.data?.username ?? '(unknown)'}</div>
-            {profile.data?.email && <div className="nav-user-email">{profile.data.email}</div>}
+            <div className="nav-user-name">{username ?? '(unknown)'}</div>
+            {email && <div className="nav-user-email">{email}</div>}
           </div>
           <button className="logout small" onClick={() => logout()}>
             Sign out

@@ -14,7 +14,7 @@ export default defineConfig({
       exposes: {
         './Mfe': './src/index.tsx'
       },
-      shared: ['react', 'react-dom', '@tanstack/react-query']
+      shared: ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query']
     })
   ],
   build: {

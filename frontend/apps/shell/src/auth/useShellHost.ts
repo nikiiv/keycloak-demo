@@ -3,7 +3,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import type { ShellHost, ThemeKey } from 'shell-api';
 import { useAuth } from './AuthProvider';
-import { keycloak } from './keycloak';
 
 export function useShellHost(theme: ThemeKey): ShellHost {
   const auth = useAuth();
@@ -14,23 +13,30 @@ export function useShellHost(theme: ThemeKey): ShellHost {
     () => ({
       auth: {
         authenticated: auth.authenticated,
-        username: (keycloak.tokenParsed as any)?.preferred_username ?? null,
+        username: auth.username,
+        email: auth.email,
+        roles: auth.roles,
         login: auth.login,
         logout: auth.logout,
-        getToken: async () => {
-          if (!keycloak.authenticated) return null;
-          try {
-            await keycloak.updateToken(30);
-          } catch {
-            return null;
-          }
-          return keycloak.token ?? null;
-        }
+        getToken: auth.getToken,
+        loadProfile: auth.loadProfile
       },
       queryClient,
       navigate: (path: string) => navigate(path),
       theme
     }),
-    [auth.authenticated, auth.login, auth.logout, queryClient, navigate, theme]
+    [
+      auth.authenticated,
+      auth.username,
+      auth.email,
+      auth.roles,
+      auth.login,
+      auth.logout,
+      auth.getToken,
+      auth.loadProfile,
+      queryClient,
+      navigate,
+      theme
+    ]
   );
 }

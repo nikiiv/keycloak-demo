@@ -1,12 +1,18 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import type { ShellProfile } from 'shell-api';
 import { keycloak } from './keycloak';
 
 interface AuthContextValue {
   ready: boolean;
   authenticated: boolean;
+  username: string | null;
+  email: string | null;
+  roles: string[];
   login: () => void;
   logout: () => void;
+  getToken: () => Promise<string | null>;
+  loadProfile: () => Promise<ShellProfile | null>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -26,6 +32,36 @@ function initOnce(): Promise<boolean> {
     });
   }
   return initPromise;
+}
+
+function tokenClaim<T = unknown>(key: string): T | null {
+  const parsed = keycloak.tokenParsed as Record<string, unknown> | undefined;
+  return (parsed?.[key] as T | undefined) ?? null;
+}
+
+async function getFreshToken(): Promise<string | null> {
+  if (!keycloak.authenticated) return null;
+  try {
+    await keycloak.updateToken(30);
+  } catch {
+    return null;
+  }
+  return keycloak.token ?? null;
+}
+
+async function loadProfile(): Promise<ShellProfile | null> {
+  if (!keycloak.authenticated) return null;
+  try {
+    const profile = await keycloak.loadUserProfile();
+    return {
+      username: profile.username ?? '',
+      email: profile.email ?? '',
+      firstName: profile.firstName ?? '',
+      lastName: profile.lastName ?? ''
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -72,11 +108,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value: AuthContextValue = {
     ready,
     authenticated,
+    username: authenticated ? tokenClaim<string>('preferred_username') : null,
+    email: authenticated ? tokenClaim<string>('email') : null,
+    roles: authenticated ? keycloak.realmAccess?.roles ?? [] : [],
     // Land on the home page after auth; the Nav will show whichever MFE links
     // the user's roles unlock. The redirect matches the client's redirectUris
     // pattern in realm-export.json.
     login: () => keycloak.login({ redirectUri: window.location.origin + '/' }),
-    logout: () => keycloak.logout()
+    logout: () => keycloak.logout(),
+    getToken: getFreshToken,
+    loadProfile
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -86,8 +127,4 @@ export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');
   return ctx;
-}
-
-export function hasRole(role: string): boolean {
-  return (keycloak.realmAccess?.roles ?? []).includes(role);
 }

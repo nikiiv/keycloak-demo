@@ -26,7 +26,7 @@ export default defineConfig({
         mfeOps: `${mfeOpsUrl}/assets/remoteEntry.js`,
         mfeAdmin: `${mfeAdminUrl}/assets/remoteEntry.js`
       },
-      shared: ['react', 'react-dom', '@tanstack/react-query']
+      shared: ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query']
     })
   ],
   build: {
