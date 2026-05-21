@@ -1,15 +1,21 @@
-version: "3.8"
+# Microfrontend topology. The shell at :5173 signs users in once against
+# Keycloak and lazy-loads three independently-deployed MFEs through module
+# federation; each MFE is its own container and pairs with its own BFF.
+#
+#   browser → shell (5173)
+#                ├─ fetches mfe-client (5181) / mfe-ops (5182) / mfe-admin (5183) remoteEntry.js
+#                └─ proxies /api/{whoami,client/*,ops/*,admin/*} to the matching BFF container
+#
+#   bff-client (8081, no role gate)   ← /api/whoami + /api/client/*
+#   bff-ops    (8082, user|admin)     ← /api/ops/*
+#   bff-admin  (8083, admin)          ← /api/admin/*
 
-# Single frontend/ and bff/ codebase, run as two parameterized instances
-# (web-a + bff-a, web-b + bff-b) to demonstrate SSO.
-
-x-web-common: &web-common
+x-mfe-common: &mfe-common
   image: node:20-alpine
-  working_dir: /app
-  command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+  working_dir: /workspace
   volumes:
-    - ./frontend:/app
-    - /app/node_modules # anonymous volume, isolated per container
+    - ./frontend:/workspace
+    - /workspace/node_modules
   networks:
     - keycloak-network
   depends_on:
@@ -85,10 +91,6 @@ services:
       user-service:
         condition: service_healthy
 
-  # Standalone user store. The Keycloak SPI is a thin REST client of this;
-  # the API is generated on both sides from user-api/openapi.yaml. Built once
-  # into a fat-jar image (like bff/), context is the repo root so the build
-  # can read user-api/openapi.yaml.
   user-service:
     build:
       context: .
@@ -101,80 +103,93 @@ services:
     ports:
       - "8090:8080"
     healthcheck:
-      # eclipse-temurin (Ubuntu) has bash; /bin/sh is dash so invoke bash. The
-      # Micronaut status line is "200 Ok", so match on " 200 " not "200 OK".
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q ' 200 ' <&3"]
       interval: 10s
       timeout: 5s
       retries: 20
       start_period: 20s
 
-  web-a:
-    <<: *web-common
+  # ---- frontend: shell + three MFE containers --------------------------------
+  # Each Vite container shares ./frontend so it can `npm install` the whole
+  # workspace once and resolve shell-api / inter-package symlinks. Each MFE
+  # builds and previews its own dist (federation expose requires a build); the
+  # shell stays in dev mode so the /api proxy and HMR for shell code work.
+
+  shell:
+    <<: *mfe-common
+    command: sh -c "npm install && npm run -w shell dev -- --host 0.0.0.0"
     ports:
       - "5173:5173"
     environment:
       VITE_KEYCLOAK_URL: http://localhost:8888
-      VITE_KEYCLOAK_CLIENT_ID: app1-client
-      VITE_APP_NAME: "App A"
-      VITE_APP_TITLE: "client space"
+      VITE_KEYCLOAK_CLIENT_ID: mfe-shell-client
+      VITE_APP_NAME: "Demo Shell"
+      VITE_APP_TITLE: "Microfrontend SSO Demo"
       VITE_APP_THEME: "a"
-      BFF_URL: http://bff-a:8080
+      # Federation remote URLs — embedded in the shell bundle, must be
+      # browser-reachable (so localhost, not the in-compose hostname).
+      VITE_MFE_CLIENT_URL: http://localhost:5181
+      VITE_MFE_OPS_URL: http://localhost:5182
+      VITE_MFE_ADMIN_URL: http://localhost:5183
+      # BFF URLs are used by the Vite proxy on the shell container itself,
+      # so they're in-network hostnames.
+      BFF_SHELL_URL: http://bff-client:8080
+      BFF_CLIENT_URL: http://bff-client:8080
+      BFF_OPS_URL: http://bff-ops:8080
+      BFF_ADMIN_URL: http://bff-admin:8080
 
-  web-b:
-    <<: *web-common
+  mfe-client:
+    <<: *mfe-common
+    command: sh -c "npm install && npm run -w mfe-client build && npm run -w mfe-client preview"
     ports:
-      - "5174:5173"
-    environment:
-      VITE_KEYCLOAK_URL: http://localhost:8888
-      VITE_KEYCLOAK_CLIENT_ID: app2-client
-      VITE_APP_NAME: "App B"
-      VITE_APP_TITLE: "client self service"
-      VITE_APP_THEME: "b"
-      BFF_URL: http://bff-b:8080
+      - "5181:5181"
 
-  web-c:
-    <<: *web-common
+  mfe-ops:
+    <<: *mfe-common
+    command: sh -c "npm install && npm run -w mfe-ops build && npm run -w mfe-ops preview"
     ports:
-      - "5175:5173"
-    environment:
-      VITE_KEYCLOAK_URL: http://localhost:8888
-      VITE_KEYCLOAK_CLIENT_ID: app3-client
-      VITE_APP_NAME: "App C (admin)"
-      VITE_APP_TITLE: "restricted admin area"
-      VITE_APP_THEME: "c"
-      BFF_URL: http://bff-c:8080
+      - "5182:5182"
 
-  bff-a:
+  mfe-admin:
+    <<: *mfe-common
+    command: sh -c "npm install && npm run -w mfe-admin build && npm run -w mfe-admin preview"
+    ports:
+      - "5183:5183"
+
+  # ---- backend: one BFF per MFE ----------------------------------------------
+  # Same image, different config. APP_ALLOWED_ROLES is what gates /api/user;
+  # /api/whoami is unconditional (the shell calls it through bff-client).
+
+  bff-client:
     <<: *bff-common
     ports:
       - "8081:8080"
     environment:
-      MICRONAUT_APPLICATION_NAME: bff-a
-      APP_SOURCE: bff-a
+      MICRONAUT_APPLICATION_NAME: bff-client
+      APP_SOURCE: bff-client
       CORS_ORIGIN: http://localhost:5173
       KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
 
-  bff-b:
+  bff-ops:
     <<: *bff-common
     ports:
       - "8082:8080"
     environment:
-      MICRONAUT_APPLICATION_NAME: bff-b
-      APP_SOURCE: bff-b
+      MICRONAUT_APPLICATION_NAME: bff-ops
+      APP_SOURCE: bff-ops
       APP_ALLOWED_ROLES: "user,admin"
-      CORS_ORIGIN: http://localhost:5174
+      CORS_ORIGIN: http://localhost:5173
       KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
 
-  bff-c:
+  bff-admin:
     <<: *bff-common
     ports:
       - "8083:8080"
     environment:
-      MICRONAUT_APPLICATION_NAME: bff-c
-      APP_SOURCE: bff-c
+      MICRONAUT_APPLICATION_NAME: bff-admin
+      APP_SOURCE: bff-admin
       APP_ALLOWED_ROLES: "admin"
-      CORS_ORIGIN: http://localhost:5175
+      CORS_ORIGIN: http://localhost:5173
       KEYCLOAK_AUTH_SERVER_URL: http://keycloak:8080/realms/demo-realm
 
 volumes:

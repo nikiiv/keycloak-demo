@@ -1,0 +1,260 @@
+/* ============================================================
+   MFE Shell login theme
+   Matches the React shell's Theme A design tokens
+   (frontend/apps/shell/src/styles.css :root). The same cream
+   background, teal accent, Inter body, Instrument Serif title
+   that the shell uses for its hero. The OTP form ships with the
+   email-OTP SPI (keycloak-provider/src/main/resources/theme-resources/
+   templates/email-otp.ftl) and inherits this CSS automatically
+   because it renders inside the realm's login theme.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif&family=JetBrains+Mono:wght@500;600&display=swap');
+
+:root {
+  --bg: #fbf9f4;
+  --surface: #ffffff;
+  --fg: #1c1917;
+  --fg-muted: #78716c;
+  --accent: #0d9488;
+  --accent-hover: #0f766e;
+  --border: #e7e5e4;
+  --border-strong: #d6d3d1;
+  --danger: #b91c1c;
+  --shadow: 0 1px 3px rgba(28, 25, 23, 0.05), 0 12px 32px rgba(28, 25, 23, 0.06);
+  --shadow-lg: 0 4px 24px rgba(28, 25, 23, 0.08);
+  --radius: 14px;
+  --radius-sm: 8px;
+  --font-base: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-display: 'Instrument Serif', 'Iowan Old Style', Georgia, serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+/* ---------- page background ---------- */
+
+html, body,
+.login-pf,
+.login-pf-page,
+body.login-pf {
+  background: var(--bg) !important;
+  background-image:
+    radial-gradient(1100px 520px at 85% -10%, rgba(13, 148, 136, 0.06), transparent 60%),
+    radial-gradient(900px 460px at -10% 110%, rgba(13, 148, 136, 0.04), transparent 60%) !important;
+  background-attachment: fixed !important;
+  color: var(--fg);
+  font-family: var(--font-base) !important;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body.login-pf { background-image: none !important; }
+
+/* ---------- hide the stock PF header, inject our own eyebrow ---------- */
+
+#kc-header,
+#kc-header-wrapper {
+  display: none !important;
+}
+
+.login-pf-page::before {
+  content: 'Microfrontend SSO Demo';
+  display: block;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--accent);
+  margin: 1.5rem auto 0.5rem;
+}
+
+/* ---------- card ---------- */
+
+.login-pf-page .card-pf {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 2.25rem 2rem 1.75rem;
+  max-width: 460px;
+  margin: 0.75rem auto 1.5rem;
+}
+
+/* ---------- title + subtitle ---------- */
+
+#kc-page-title,
+.login-pf-header h1,
+.pf-c-title,
+h1#kc-page-title {
+  font-family: var(--font-display) !important;
+  font-weight: 400 !important;
+  font-size: 2rem !important;
+  line-height: 1.15 !important;
+  color: var(--fg) !important;
+  letter-spacing: -0.02em !important;
+  margin: 0 0 0.25rem 0 !important;
+  text-align: left !important;
+}
+
+#kc-page-title::after {
+  content: 'Sign in to continue.';
+  display: block;
+  font-family: var(--font-base);
+  font-size: 0.95rem;
+  font-weight: 400;
+  color: var(--fg-muted);
+  letter-spacing: normal;
+  margin-top: 0.35rem;
+}
+
+/* The email-OTP step sets the title to "Enter email code" — swap the
+   subtitle line in that case so the second-factor screen reads naturally. */
+#kc-otp-login-form ~ * #kc-page-title::after,
+body:has(#kc-otp-login-form) #kc-page-title::after {
+  content: 'A 6-digit code was sent to your email. Valid for 10 minutes.';
+}
+
+/* ---------- form fields ---------- */
+
+label,
+.pf-c-form__label {
+  color: var(--fg) !important;
+  font-weight: 500 !important;
+  font-size: 0.9rem !important;
+  margin-bottom: 0.4rem;
+}
+
+input.pf-c-form-control,
+input[type="text"],
+input[type="password"],
+input[type="email"] {
+  background: #fff !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 0.7rem 0.85rem !important;
+  font-size: 0.95rem !important;
+  color: var(--fg) !important;
+  font-family: var(--font-base) !important;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+  width: 100%;
+}
+
+input.pf-c-form-control:focus,
+input:focus {
+  outline: none !important;
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.18) !important;
+}
+
+/* OTP input — monospace, large, spaced so all six digits feel like one chip */
+input#otp,
+input[name="otp"] {
+  font-family: var(--font-mono) !important;
+  font-size: 1.6rem !important;
+  letter-spacing: 0.45em !important;
+  text-align: center !important;
+  padding: 0.85rem 0.5rem 0.85rem 1rem !important;
+}
+
+/* ---------- primary action button ---------- */
+
+.pf-c-button.pf-m-primary,
+input[type="submit"],
+button.pf-c-button.pf-m-primary,
+#kc-login {
+  background: var(--accent) !important;
+  border: 1px solid var(--accent) !important;
+  color: #fff !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 0.75rem 1.2rem !important;
+  font-weight: 500 !important;
+  font-family: var(--font-base) !important;
+  letter-spacing: 0.01em !important;
+  transition: background 120ms ease, box-shadow 120ms ease;
+  cursor: pointer;
+  width: 100%;
+}
+
+.pf-c-button.pf-m-primary:hover,
+input[type="submit"]:hover,
+button.pf-c-button.pf-m-primary:hover,
+#kc-login:hover {
+  background: var(--accent-hover) !important;
+  border-color: var(--accent-hover) !important;
+  box-shadow: 0 4px 12px rgba(13, 148, 136, 0.25) !important;
+}
+
+/* ---------- links ---------- */
+
+a,
+a:visited {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+/* ---------- errors and feedback ---------- */
+
+.kc-feedback-text,
+#input-error,
+.alert,
+.alert-error,
+.pf-c-alert {
+  color: var(--danger) !important;
+  font-size: 0.875rem !important;
+  font-family: var(--font-base) !important;
+  background: rgba(185, 28, 28, 0.06) !important;
+  border: 1px solid rgba(185, 28, 28, 0.18) !important;
+  border-radius: var(--radius-sm) !important;
+  padding: 0.6rem 0.85rem !important;
+  margin: 0.5rem 0 1rem !important;
+}
+
+/* When the alert is a plain inline error text (no .alert wrapper), keep it
+   simple — no border/background. */
+#input-error,
+.kc-feedback-text {
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  margin-top: 0.3rem !important;
+}
+
+/* ---------- footer / extra links ("Forgot password?", "Register", etc) ---------- */
+
+#kc-info,
+.login-pf-actions {
+  text-align: center;
+  margin-top: 1rem;
+  font-size: 0.875rem;
+  color: var(--fg-muted);
+}
+
+#kc-info a {
+  font-weight: 500;
+}
+
+/* ---------- form spacing ---------- */
+
+.pf-c-form__group,
+.form-group,
+#kc-form-buttons {
+  margin-bottom: 1.1rem !important;
+}
+
+#kc-form-buttons {
+  margin-top: 1.3rem !important;
+}
+
+/* ---------- "stay signed in" / checkbox row ---------- */
+
+.checkbox label,
+#kc-form-options .checkbox label {
+  color: var(--fg-muted) !important;
+  font-weight: 400 !important;
+  font-size: 0.875rem !important;
+}

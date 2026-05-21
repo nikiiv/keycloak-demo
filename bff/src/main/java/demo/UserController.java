@@ -10,6 +10,7 @@ import io.micronaut.http.annotation.Produces;
 import io.micronaut.security.annotation.Secured;
 import io.micronaut.security.authentication.Authentication;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -54,6 +55,40 @@ public class UserController {
         user.put("source", source);
         authentication.getAttributes().forEach(user::put);
         return HttpResponse.ok(user);
+    }
+
+    /**
+     * Returns the user's identity plus the list of microfrontends their roles
+     * grant access to. The shell uses this to decide which MFE routes to mount
+     * and which nav links to grey out; the per-MFE BFF endpoints are still the
+     * authoritative gate, so this is a UX hint, not a security boundary.
+     *
+     * Role → allowedMfes mapping (mirrors the old per-app APP_ALLOWED_ROLES
+     * matrix from CLAUDE.md):
+     *   - any authenticated user → "client"
+     *   - role "user" or "admin"  → "ops"
+     *   - role "admin"            → "admin"
+     */
+    @Get("/whoami")
+    @Secured({"isAuthenticated()"})
+    public Map<String, Object> whoami(Authentication authentication) {
+        Collection<String> roles = authentication.getRoles();
+        List<String> allowedMfes = new ArrayList<>();
+        allowedMfes.add("client");
+        if (roles.contains("user") || roles.contains("admin")) {
+            allowedMfes.add("ops");
+        }
+        if (roles.contains("admin")) {
+            allowedMfes.add("admin");
+        }
+        Map<String, Object> body = new HashMap<>();
+        body.put("username", authentication.getName());
+        body.put("roles", roles);
+        body.put("allowedMfes", allowedMfes);
+        body.put("source", source);
+        Object email = authentication.getAttributes().get("email");
+        body.put("email", email != null ? email : "");
+        return body;
     }
 
     @Get("/secure")
