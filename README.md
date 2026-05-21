@@ -146,6 +146,8 @@ Three modes, each one command.
 
 `./start.sh --dev` adds `docker-compose.dev.yml` and switches the MFE containers to `vite build --watch + vite preview`. `./dev-bff.sh` detects docker vs podman, stops the compose BFF for the chosen role, recreates the shell with the right host-gateway URL (`host.docker.internal` for Docker, `host.containers.internal` for Podman), and then execs `./gradlew run -t --no-daemon` in the foreground. Tokens minted in the browser use `http://localhost:8888/realms/demo-realm` as the issuer — the script sets `KEYCLOAK_AUTH_SERVER_URL` to match.
 
+**Iterating on one MFE only?** Use `./dev-mfe-client.sh`, `./dev-mfe-ops.sh`, or `./dev-mfe-admin.sh` (all three wrap `./dev-mfe.sh <which>`). Each brings up just `postgres + user-service + keycloak + shell + bff-client + mfe-<which> + bff-<which>` in Level 2 mode and skips the other two MFE pairs. Full walkthrough in [DEV-MFE.md](./DEV-MFE.md).
+
 To return to demo mode: `docker compose up -d bff-<which>` (restarts the compose BFF) then `./start.sh` (resets the shell without the host override).
 
 ### Running with Podman on macOS
